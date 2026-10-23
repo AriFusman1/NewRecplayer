@@ -1,0 +1,48 @@
+# PCAP Player configuration.
+# Every key can be overridden by an environment variable: upper-case the path and replace
+# '.' and '-' with '_'. Example: s3.access-key -> S3_ACCESS_KEY, server.port -> SERVER_PORT.
+# An extra YAML file can be layered on top with CONFIG_FILE=/path/to/application.yml.
+
+server:
+  host: 0.0.0.0
+  port: 8080
+
+storage:
+  # s3 | filesystem (filesystem is for local development only)
+  type: s3
+  filesystem-root: /tmp/pcap-player/store
+
+s3:
+  # Empty endpoint = AWS. For MinIO / S3-compatible servers set e.g. http://minio:9000
+  endpoint: ""
+  region: us-east-1
+  bucket: pcap-player
+  # Empty keys = AWS default credential chain (env, profile, IRSA, ...)
+  access-key: ""
+  secret-key: ""
+  # true for MinIO and most S3-compatible servers
+  path-style: false
+  # optional key prefix inside the bucket, e.g. "pcap-player/"
+  prefix: ""
+
+# Local scratch space (uploads in progress, cached pcaps). Must be writable by the container user.
+work-dir: /tmp/pcap-player
+cache:
+  max-bytes: 2147483648
+upload:
+  # an uploaded-but-not-saved file is discarded after this long
+  expire-minutes: 120
+
+replay:
+  connect-timeout-ms: 5000
+
+extraction:
+  fragment-timeout-ms: 30000
+  tcp-gap-timeout-ms: 2000
+  udp-duplicate-window-ms: 5
+
+history:
+  size: 20
+
+histogram:
+  max-bins: 120
