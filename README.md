@@ -6,7 +6,8 @@ same timing gaps. It impersonates the source over ordinary sockets (the OS build
 replies from the service are drained and ignored.
 
 - **Backend**: Java 17, Vert.x 4.5 (HTTP, plain WebSocket, static files), AWS SDK v2 S3 client.
-  The pcap/pcapng parser, IPv4 fragment reassembly and TCP stream reassembly are hand-written.
+  Capture files are read by libpcap through [pcap4j](https://github.com/kaitoy/pcap4j), which also
+  decodes the packet headers; IPv4 fragment reassembly and TCP stream reassembly are hand-written.
 - **Frontend**: React 18 + TypeScript + Vite; plain CSS, hand-written i18n (English LTR / Hebrew RTL).
 - **Storage**: one S3 bucket (AWS or S3-compatible), no database.
 - **Deployment**: one Docker image, OpenShift-friendly, single replica.
@@ -18,8 +19,8 @@ replies from the service are drained and ignored.
 ```
 backend/                     Maven project (all versions pinned in pom.xml <properties>)
   src/main/java/com/pcapplayer/
-    capture/   pcap + pcapng streaming readers (byte order, µs/ns, if_tsresol, multi-interface)
-    net/       link layers (Ethernet/VLAN/QinQ, SLL, SLL2, raw), IPv4, fragment reassembly, TCP/UDP
+    capture/   pcap + pcapng reading via libpcap (pcap4j), ns timestamps
+    net/       pcap4j header decoding (+ SLL2/QinQ/loopback fallback), fragment reassembly, TCP/UDP
     extract/   upload scan, message extraction, TCP stream reassembly, UDP de-duplication, histogram
     replay/    engine, sessions (single replay = 1-item session, playlist = N), precise clock, transports
     storage/   BlobStore interface + S3 and filesystem implementations, local file cache
@@ -50,6 +51,8 @@ Direct dependencies:
 | software.amazon.awssdk:s3 (netty-nio-client and apache-client **excluded**) | 2.31.30 |
 | software.amazon.awssdk:url-connection-client | 2.31.30 |
 | org.yaml:snakeyaml (pinned; Vert.x would otherwise force 2.0) | 2.3 |
+| org.pcap4j:pcap4j-core, pcap4j-packetfactory-static | 1.8.2 |
+| net.java.dev.jna:jna (pinned; pcap4j asks for 5.3.1) | 5.14.0 |
 
 Full resolved runtime tree (`mvn dependency:list -DincludeScope=runtime`):
 
@@ -61,6 +64,8 @@ com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.4
 io.netty:netty-buffer / codec / codec-dns / codec-http / codec-http2 / codec-socks / common /
          handler / handler-proxy / resolver / resolver-dns / transport /
          transport-native-unix-common:4.1.125.Final            (pulled in by vertx-core)
+net.java.dev.jna:jna:5.14.0                                     (pulled in by pcap4j-core)
+org.pcap4j:pcap4j-core / pcap4j-packetfactory-static:1.8.2
 io.vertx:vertx-auth-common / vertx-bridge-common / vertx-core / vertx-web / vertx-web-common:4.5.21
 org.reactivestreams:reactive-streams:1.0.4
 org.slf4j:slf4j-api:2.0.7                                       (no binding; see Logging)
@@ -197,10 +202,21 @@ Build args for an isolated network: `REGISTRY` (base image registry prefix, e.g.
 ## How it works
 
 ### Capture parsing
-Streaming readers for classic pcap (both byte orders, µs and ns magic) and pcapng (SHB/IDB/EPB/SPB
-and the obsolete PB, several sections and interfaces, per-interface link type, `if_tsresol`,
-`if_tsoffset`, both byte orders). Link types: Ethernet with any number of 802.1Q/QinQ tags, Linux
-SLL and SLL2, raw IPv4 (and BSD loopback). Only IPv4 TCP/UDP is used; everything else is skipped.
+Capture files are opened with libpcap (`pcap_open_offline`, nanosecond precision) through pcap4j,
+so classic pcap (both byte orders, µs and ns magic) and pcapng (`if_tsresol`, `if_tsoffset`, both
+byte orders) are handled by libpcap itself. pcap4j's packet factory decodes Ethernet, 802.1Q VLAN,
+Linux SLL, BSD loopback, raw IP, IPv4, TCP and UDP. For encapsulations pcap4j 1.8 does not know
+(Linux SLL2, QinQ, `DLT_LOOP`, `DLT_IPV4`, big-endian loopback) `LinkDecoder` locates the IPv4
+header and hands it to pcap4j's IPv4 decoder. Only IPv4 TCP/UDP is used; everything else is skipped.
+
+**Native requirement**: libpcap must be installed where the backend runs — `libpcap0.8` on
+Linux (installed in the Docker image), [Npcap](https://npcap.com) on Windows (preferred over a
+legacy WinPcap automatically), libpcap is built into macOS. Reading files needs no capture
+privileges.
+
+**Limitation**: libpcap rejects a pcapng file whose interfaces have *different* link types (e.g.
+dumpcap capturing `eth0` and `any` at once); such an upload fails with "Unsupported capture".
+Single-link-type pcapng files with several interfaces are fine.
 
 Receive-side artifacts:
 - **GRO/LRO**: the IP total length is trusted only when it is consistent with the captured bytes;
@@ -298,7 +314,8 @@ WebSocket `/ws` (server → client): `sessions` (snapshot on change and 5×/s wh
 describing exactly what must be replayed: UDP with out-of-order fragments, a duplicate captured on
 a QinQ interface, an incomplete fragment set, snaplen truncation, Ethernet padding, ARP/IPv6 noise;
 TCP with out-of-order, retransmitted and overlapping segments, an ACK-confirmed capture gap, a
-segment captured on two interfaces (Ethernet + SLL2), a 30 KB GRO super-packet with IP length 0, a
+segment captured on two interfaces (Ethernet + SLL2 — rejected by libpcap since the move to pcap4j,
+see the limitation above), a 30 KB GRO super-packet with IP length 0, a
 FIN-closed connection followed by a new one; TCP-client mode with sequence wrap-around and a range
 starting mid-connection; big- and little-endian, pcap and pcapng, µs and ns resolution. All
 scenarios were checked against the Java extractor during development.

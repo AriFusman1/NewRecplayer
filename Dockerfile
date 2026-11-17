@@ -28,6 +28,12 @@ RUN mvn -B -q package -DskipTests
 
 # ---------- 3. runtime ----------
 FROM ${REGISTRY}eclipse-temurin:17.0.13_11-jre-jammy
+# Capture files are read by the native libpcap (via pcap4j/JNA). Only offline reading is used, so no
+# capture capabilities (CAP_NET_RAW) are needed. The unversioned symlink lets JNA find it by name.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libpcap0.8 \
+ && ln -sf "$(find /usr/lib /lib -name 'libpcap.so.0.8' | head -n 1)" /usr/lib/libpcap.so \
+ && rm -rf /var/lib/apt/lists/*
 # OpenShift runs the container with an arbitrary UID in group 0: everything it writes is group-0 writable.
 RUN mkdir -p /app /tmp/pcap-player \
  && chgrp -R 0 /app /tmp/pcap-player \

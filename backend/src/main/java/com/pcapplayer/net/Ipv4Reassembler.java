@@ -80,7 +80,7 @@ public final class Ipv4Reassembler {
             int len = Math.min(part.length, whole.length - off);
             if (len > 0) System.arraycopy(part, 0, whole, off, len);
         }
-        return new Ipv4Packet(p.tsNanos(), p.src(), p.dst(), p.protocol(), p.id(), false, 0, whole, set.truncated);
+        return new Ipv4Packet(p.tsNanos(), p.src(), p.dst(), p.protocol(), p.id(), false, 0, whole, set.truncated, null);
     }
 
     private void purge(long now) {

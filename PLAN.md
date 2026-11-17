@@ -11,7 +11,7 @@ Dockerfile, README.md
 ## Backend packages
 | Package | Responsibility |
 |---|---|
-| `capture` | Streaming readers: `ClassicPcapReader`, `PcapNgReader`, `CaptureReaders.open()` (magic auto-detect). Emit `RawFrame(tsNanos, linkType, bytes, capLen, origLen)`. |
+| `capture` | `CaptureReaders.open()` → `Pcap4jCaptureReader` (libpcap via pcap4j, pcap + pcapng). Emits `RawFrame(tsNanos, linkType, bytes, origLen)`. |
 | `net` | `LinkDecoder` (Ethernet + 802.1Q/QinQ, SLL, SLL2, raw IPv4) → `Ipv4Packet`; `Ipv4Reassembler` (key src,dst,proto,id; timeout ⇒ incomplete); `TcpSegment` / `UdpDatagram` decoders. GRO-safe length handling, truncation flags, no checksum checks. |
 | `extract` | `CaptureScanner` (upload summary: times, protocols, ports per role, IPs, truncated/fragment counts). `MessageExtractor` (filter by mode/ports/IP/range → `ReplayScript`), `TcpStreamReassembler` (seq unwrap, dedupe, overlap trim, reorder, gaps via reverse-ACK or timeout, connection boundaries), `UdpDeduplicator`. |
 | `replay` | `ReplayEngine` (active sessions, target/listen-port locks), `ReplaySession` (one thread; single replay = session with 1 item, playlist = N items), transports `TcpConnectTransport` / `UdpSendTransport` / `TcpListenTransport`, `PreciseClock` (park + spin, schedule from zero, no drift). |

@@ -2,12 +2,13 @@ package com.pcapplayer.net;
 
 import com.pcapplayer.capture.CaptureReader;
 import com.pcapplayer.capture.RawFrame;
+import org.pcap4j.packet.IpV4Packet;
 
 import java.io.Closeable;
 import java.io.IOException;
 
 /**
- * Frames → IPv4 → fragment reassembly → TCP/UDP packets. Everything that is not IPv4 TCP/UDP is
+ * Frames (libpcap) → IPv4 (pcap4j) → fragment reassembly → TCP/UDP packets (pcap4j). Everything that is not IPv4 TCP/UDP is
  * skipped silently. Counters describe the whole stream (all packets, before any filtering).
  */
 public final class PacketStream implements Closeable {
@@ -26,22 +27,21 @@ public final class PacketStream implements Closeable {
 
     /** @return the next TCP/UDP packet, or null at end of capture */
     public L4Packet next() throws IOException {
-        RawFrame f;
-        while ((f = reader.next()) != null) {
+        RawFrame frame;
+        while ((frame = reader.next()) != null) {
             frames++;
-            if (f.tsNanos() > 0) {
-                firstTs = Math.min(firstTs, f.tsNanos());
-                lastTs = Math.max(lastTs, f.tsNanos());
+            if (frame.tsNanos() > 0) {
+                firstTs = Math.min(firstTs, frame.tsNanos());
+                lastTs = Math.max(lastTs, frame.tsNanos());
             }
-            int off = LinkDecoder.ipv4Offset(f.linkType(), f.data());
-            if (off < 0) continue;
-            Ipv4Packet ip = Ipv4Packet.parse(f.tsNanos(), f.data(), off, f.truncated());
-            if (ip == null) continue;
-            if (ip.protocol() != Ipv4Packet.PROTO_TCP && ip.protocol() != Ipv4Packet.PROTO_UDP) continue;
-            Ipv4Packet whole = reassembler.accept(ip);
-            if (whole == null) continue;
-            L4Packet p = L4Packet.decode(whole);
-            if (p != null) return p;
+            IpV4Packet decodedIp = LinkDecoder.ipv4(frame);
+            if (decodedIp == null) continue;
+            Ipv4Packet ipPacket = Ipv4Packet.from(frame.tsNanos(), decodedIp, frame.truncated());
+            if (ipPacket.protocol() != Ipv4Packet.PROTO_TCP && ipPacket.protocol() != Ipv4Packet.PROTO_UDP) continue;
+            Ipv4Packet completePacket = reassembler.accept(ipPacket);
+            if (completePacket == null) continue; // fragment of a set that is not complete yet
+            L4Packet transportPacket = L4Packet.decode(completePacket);
+            if (transportPacket != null) return transportPacket;
         }
         if (!finished) {
             finished = true;

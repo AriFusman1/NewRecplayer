@@ -1,62 +1,69 @@
 package com.pcapplayer.net;
 
-import java.util.Arrays;
+import org.pcap4j.packet.IpV4Packet;
+import org.pcap4j.packet.Packet;
+import org.pcap4j.util.ByteArrays;
+
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 
 /**
  * An IPv4 packet (possibly one fragment). {@code payload} is the IP payload as captured.
  *
  * @param truncated the capture cut off part of this packet (snaplen)
+ * @param transport the TCP/UDP packet pcap4j already decoded from this (unfragmented) packet,
+ *                  or null for fragments and reassembled packets
  */
 public record Ipv4Packet(long tsNanos, int src, int dst, int protocol, int id,
-                         boolean moreFragments, int fragmentOffset, byte[] payload, boolean truncated) {
+                         boolean moreFragments, int fragmentOffset, byte[] payload, boolean truncated,
+                         Packet transport) {
 
     public static final int PROTO_TCP = 6;
     public static final int PROTO_UDP = 17;
+
+    /** The IPv4 fragment-offset field counts 8-byte units. */
+    private static final int FRAGMENT_OFFSET_UNIT = 8;
+    private static final int FRAGMENT_OFFSET_MASK = 0x1FFF;
 
     public boolean isFragment() {
         return moreFragments || fragmentOffset > 0;
     }
 
     /**
-     * Parses the IPv4 header at {@code off}. The payload length is derived robustly: the IP
-     * total-length is trusted only when it is consistent with the captured bytes (it then trims
-     * Ethernet padding); otherwise (GRO/LRO super-packets, total-length 0) the captured length is used.
-     *
-     * @return the packet, or null if the header is not a valid IPv4 header
+     * Converts a pcap4j-decoded IPv4 packet. pcap4j already trusts the IP total-length only when it
+     * fits the captured bytes (trimming Ethernet padding) and uses the captured length otherwise
+     * (GRO/LRO super-packets with total-length 0, snaplen truncation).
      */
-    public static Ipv4Packet parse(long ts, byte[] d, int off, boolean frameTruncated) {
-        int avail = d.length - off;
-        if (avail < 20 || (d[off] & 0xF0) != 0x40) return null;
-        int ihl = (d[off] & 0x0F) * 4;
-        if (ihl < 20 || avail < ihl) return null;
-        int totalLen = LinkDecoder.u16(d, off + 2);
-        int id = LinkDecoder.u16(d, off + 4);
-        int flagsFrag = LinkDecoder.u16(d, off + 6);
-        boolean mf = (flagsFrag & 0x2000) != 0;
-        int fragOff = (flagsFrag & 0x1FFF) * 8;
-        int proto = d[off + 9] & 0xFF;
-        int src = readInt(d, off + 12);
-        int dst = readInt(d, off + 16);
+    public static Ipv4Packet from(long tsNanos, IpV4Packet ipPacket, boolean frameTruncated) {
+        IpV4Packet.IpV4Header header = ipPacket.getHeader();
+        Packet ipPayload = ipPacket.getPayload();
+        byte[] payloadBytes = ipPayload == null ? new byte[0] : ipPayload.getRawData();
 
-        int ipLen;
-        boolean truncated;
-        if (totalLen >= ihl && totalLen <= avail) {
-            ipLen = totalLen;
-            truncated = false; // the whole IP packet was captured (snaplen only cut link trailer, if anything)
-        } else {
-            ipLen = avail;
-            truncated = frameTruncated;
-        }
-        byte[] payload = Arrays.copyOfRange(d, off + ihl, off + ipLen);
-        return new Ipv4Packet(ts, src, dst, proto, id, mf, fragOff, payload, truncated);
-    }
+        int headerLength = header.length();
+        int totalLength = header.getTotalLengthAsInt();
+        // The whole IP packet was captured iff its total-length fits in what pcap4j kept.
+        boolean fullyCaptured = totalLength >= headerLength && totalLength <= headerLength + payloadBytes.length;
 
-    static int readInt(byte[] d, int off) {
-        return (d[off] & 0xFF) << 24 | (d[off + 1] & 0xFF) << 16 | (d[off + 2] & 0xFF) << 8 | (d[off + 3] & 0xFF);
+        boolean moreFragments = header.getMoreFragmentFlag();
+        int fragmentOffset = (header.getFragmentOffset() & FRAGMENT_OFFSET_MASK) * FRAGMENT_OFFSET_UNIT;
+        boolean fragment = moreFragments || fragmentOffset > 0;
+
+        return new Ipv4Packet(tsNanos,
+                ByteArrays.getInt(header.getSrcAddr().getAddress(), 0),
+                ByteArrays.getInt(header.getDstAddr().getAddress(), 0),
+                Byte.toUnsignedInt(header.getProtocol().value()),
+                header.getIdentificationAsInt(),
+                moreFragments, fragmentOffset, payloadBytes,
+                !fullyCaptured && frameTruncated,
+                fragment ? null : ipPayload);
     }
 
     public static String ipToString(int ip) {
-        return ((ip >>> 24) & 0xFF) + "." + ((ip >>> 16) & 0xFF) + "." + ((ip >>> 8) & 0xFF) + "." + (ip & 0xFF);
+        try {
+            return InetAddress.getByAddress(ByteArrays.toByteArray(ip)).getHostAddress();
+        } catch (UnknownHostException e) {
+            throw new IllegalStateException(e); // cannot happen for a 4-byte address
+        }
     }
 
     /** @return the address as int, or throws IllegalArgumentException for a non dotted-quad string */

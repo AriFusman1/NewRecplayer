@@ -4,3 +4,5 @@ backend/target/
 backend/src/main/resources/webroot/
 *.log
 .DS_Store
+.idea
+*.iml
