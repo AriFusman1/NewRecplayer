@@ -1,22 +1,22 @@
 package com.pcapplayer;
 
-import com.pcapplayer.api.ApiServer;
-import com.pcapplayer.api.live.LiveHub;
-import com.pcapplayer.catalog.repository.CatalogRepository;
-import com.pcapplayer.catalog.service.CatalogService;
-import com.pcapplayer.config.AppConfig;
-import com.pcapplayer.config.ConfigLoader;
-import com.pcapplayer.pcap.extract.CachingExtractor;
-import com.pcapplayer.pcap.extract.ExtractionSettings;
-import com.pcapplayer.pcap.extract.MessageExtractor;
-import com.pcapplayer.pcap.summary.CaptureScanner;
-import com.pcapplayer.replay.ReplayEngine;
-import com.pcapplayer.replay.model.HistoryEntry;
-import com.pcapplayer.storage.BlobStore;
-import com.pcapplayer.storage.FileCache;
-import com.pcapplayer.storage.filesystem.FileSystemBlobStore;
-import com.pcapplayer.storage.s3.S3BlobStore;
-import com.pcapplayer.upload.UploadService;
+import com.pcapplayer.configuration.AppConfig;
+import com.pcapplayer.configuration.ConfigLoader;
+import com.pcapplayer.pcapProcessing.extract.CachingExtractor;
+import com.pcapplayer.pcapProcessing.extract.ExtractionSettings;
+import com.pcapplayer.pcapProcessing.extract.MessageExtractor;
+import com.pcapplayer.pcapProcessing.summary.CaptureScanner;
+import com.pcapplayer.persistence.BlobStore;
+import com.pcapplayer.persistence.FileCache;
+import com.pcapplayer.persistence.filesystem.FileSystemBlobStore;
+import com.pcapplayer.persistence.s3.S3BlobStore;
+import com.pcapplayer.playback.ReplayEngine;
+import com.pcapplayer.playback.model.HistoryEntry;
+import com.pcapplayer.recordManagement.repository.CatalogRepository;
+import com.pcapplayer.recordManagement.service.CatalogService;
+import com.pcapplayer.uploadHandling.UploadService;
+import com.pcapplayer.web.ApiServer;
+import com.pcapplayer.web.live.LiveHub;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 
@@ -37,6 +37,7 @@ public final class Main {
     private static final long MAX_WORKER_EXECUTE_MINUTES = 30;
     private static final long PURGE_UPLOADS_EVERY_MS = TimeUnit.MINUTES.toMillis(5);
     private static final long METADATA_RETRY_MS = TimeUnit.SECONDS.toMillis(5);
+
     /** On shutdown, time for stopped items to write their history entries. */
     private static final long SHUTDOWN_GRACE_MS = TimeUnit.SECONDS.toMillis(1);
 
@@ -134,6 +135,7 @@ public final class Main {
     private static void registerShutdownHook(Vertx vertx, ReplayEngine engine) {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             engine.stopAll("server shutdown");
+
             try {
                 Thread.sleep(SHUTDOWN_GRACE_MS);
             } catch (InterruptedException e) {

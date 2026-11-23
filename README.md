@@ -317,11 +317,11 @@ docker run -p 8080:8080 -v "$PWD/config/application.yml:/app/config/application.
 backend/                          Maven project; all versions pinned in pom.xml <properties>
   src/main/java/com/pcapplayer/
     Main.java              wiring: config → storage → catalog → replay engine → HTTP server
-    config/                AppConfig (typed settings), ConfigLoader (defaults → your config file → env)
-    api/                   HTTP server wiring (ApiServer) and shared request/response helpers (Http)
+    configuration/         AppConfig (typed settings), ConfigLoader (defaults → your config file → env)
+    web/                   HTTP server wiring (ApiServer) and shared request/response helpers (Http)
       routes/              one *Routes class per area: parse the request, call a service
       live/                LiveHub: pushes running replays and change hints over the WebSocket
-    pcap/                  everything that reads packets, in pipeline order
+    pcapProcessing/        everything that reads packets, in pipeline order
       capture/             reading pcap/pcapng files through libpcap (pcap4j)
       decode/              link-layer decoding, IPv4 fragment reassembly, TCP/UDP packets
       flow/                rebuilding flows: TCP stream reassembly, UDP de-duplication
@@ -329,23 +329,23 @@ backend/                          Maven project; all versions pinned in pom.xml 
       extract/             packets → replay script: MessageExtractor, its filter/settings/result, CachingExtractor
       script/              the replay script itself: ReplayScript, ScriptStep, EConnectionMode, Histogram
       diagnostics/         Warning: problems found in a capture (truncation, gaps, duplicates, ...)
-    catalog/
+    recordManagement/
       service/             business rules: RecordService (preview, create, edit, delete), TaxonomyService
                            (categories, tags), PlaylistService, RecordScriptSource (records → replay
                            scripts), CatalogService (entry point), CatalogSupport (shared lock and helpers)
       model/               the stored data: Record, Category, Tag, PcapFile, SavedPlaylist, RecordStats
       repository/          CatalogRepository: all metadata in memory, written through to storage
-    upload/                UploadService: uploads in progress (hash and scan)
-    replay/                the engine: ReplayEngine (sessions, target locks), ReplaySession (one thread
+    uploadHandling/        UploadService: uploads in progress (hash and scan)
+    playback/              the engine: ReplayEngine (sessions, target locks), ReplaySession (one thread
                            per session), ItemPlayer (timing and seeking), PreciseClock, Control
       model/               what other packages exchange with the engine: SessionView, HistoryEntry,
                            ItemRequest, Target, ScriptSource, ReplayListener
       transport/           TCP/UDP sockets for each connection mode
-    storage/               BlobStore (the storage interface), FileCache (local copies of pcap files)
+    persistence/           BlobStore (the storage interface), FileCache (local copies of pcap files)
       s3/                  S3BlobStore: AWS S3 and S3-compatible servers
       filesystem/          FileSystemBlobStore: a local folder (local use)
-    error/                 ApiException: the app's error type ({code, message, params} with an HTTP status)
-    util/                  Json, Strings, Secrets (masking)
+    errorHandling/         ApiException: the app's error type ({code, message, params} with an HTTP status)
+    common/                Json, Strings, Secrets (masking)
   src/test/java/           unit tests (JUnit 5), in the same packages as the code they test
 
 frontend/src/
