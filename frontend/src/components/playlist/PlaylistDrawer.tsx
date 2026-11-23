@@ -7,7 +7,7 @@ import { useAction, useFeedback } from '../../state/feedback';
 import { useNickname } from '../../state/nickname';
 import { usePlaylist, type DraftItem } from '../../state/playlist';
 import { formatMs } from '../../util/time';
-import { secondsToMs, targetValid, toItemRequest } from '../../util/target';
+import { msToSeconds, secondsToMs, targetValid, toItemRequest } from '../../util/target';
 import { rememberTargets } from '../../util/targetMemory';
 import { ModeBadge } from '../common/Badges';
 import { Icon } from '../common/Icon';
@@ -195,7 +195,7 @@ function DraftItemRow({ index, item, record, mode, isLast, sortable, onChange, o
       {!isLast && (
         <div className="pl-sleep">
           {t('playlist.sleep')}
-          <input className="input mono" type="number" min={0} step={0.5} value={item.sleepAfterMs / 1000}
+          <input className="input mono" type="number" min={0} step={0.5} value={msToSeconds(item.sleepAfterMs)}
             onChange={(e) => onChange({ sleepAfterMs: secondsToMs(e.target.value) })} />
           {t('common.seconds')}
         </div>

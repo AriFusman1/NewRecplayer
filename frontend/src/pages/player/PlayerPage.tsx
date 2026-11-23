@@ -8,7 +8,7 @@ import { PlaylistDrawer } from '../../components/playlist/PlaylistDrawer';
 import { RecordCard } from '../../components/records/RecordCard';
 import { toggleIn } from '../../util/list';
 import { matchesQuery, tagsForCategory } from '../../util/records';
-import { parseMs } from '../../util/time';
+import { msToUs, parseMs } from '../../util/time';
 import { Link } from 'react-router-dom';
 
 /** Main page: search + filters + record cards, and the playlist drawer. */
@@ -24,8 +24,8 @@ export function PlayerPage() {
   const [to, setTo] = useState('');
   const [drawer, setDrawer] = useState(false);
 
-  const fromUs = from ? (parseMs(from) ?? NaN) * 1000 : null;
-  const toUs = to ? (parseMs(to) ?? NaN) * 1000 + 999_999 : null;
+  const fromUs = from ? msToUs(parseMs(from) ?? NaN) : null;
+  const toUs = to ? msToUs(parseMs(to) ?? NaN, true) : null;
 
   const visibleTags = tagsForCategory(catalog.tags, categoryId);
 

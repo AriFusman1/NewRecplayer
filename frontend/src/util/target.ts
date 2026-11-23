@@ -1,4 +1,5 @@
 import type { ItemRequest, Mode } from '../api/types';
+import { MS_PER_SECOND } from './time';
 
 /** Port suggested for a new target. */
 export const DEFAULT_PORT = 5000;
@@ -29,5 +30,15 @@ export function toItemRequest({ recordId, host, port, sleepAfterMs }: ItemReques
 
 /** "1.5" (seconds, as typed) → 1500 ms; empty or negative → 0. */
 export function secondsToMs(text: string): number {
-  return Math.max(0, Math.round(parseFloat(text || '0') * 1000));
+  return Math.max(0, Math.round(parseFloat(text || '0') * MS_PER_SECOND));
+}
+
+/** 1500 ms → 1.5, for a seconds input field. */
+export function msToSeconds(ms: number): number {
+  return ms / MS_PER_SECOND;
+}
+
+/** Whole seconds still to wait, rounded up so a countdown never shows 0 too early. */
+export function secondsLeft(ms: number): number {
+  return Math.ceil(ms / MS_PER_SECOND);
 }

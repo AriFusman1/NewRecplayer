@@ -10,6 +10,7 @@ import { useFeedback } from '../../state/feedback';
 import { useNickname } from '../../state/nickname';
 import { toggleIn } from '../../util/list';
 import { endpointSide } from '../../util/mode';
+import { tagAllowedIn } from '../../util/records';
 import { formatBytes, formatNumber } from '../../util/time';
 import { DuplicateDialog, type Duplicate } from './DuplicateDialog';
 import { PreviewCard } from './PreviewCard';
@@ -43,17 +44,18 @@ export function RecordForm({ upload, onDone }: { upload: UploadResult; onDone: (
   const category = categoryById.get(categoryId);
   const mode = category?.mode;
   const side = mode ? endpointSide(mode) : null;
-  const endpoints = useMemo(() => (side ? summary.endpoints.filter((e) => e.protocol === side.protocol && e.role === side.role) : []),
-    [summary, side?.protocol, side?.role]); // eslint-disable-line react-hooks/exhaustive-deps
-  const chosen = useMemo(() => endpoints.filter((e) => ports.includes(e.port)), [endpoints, ports]);
-  const ipSuggestions = useMemo(() => [...new Set(chosen.flatMap((e) => e.ips))], [chosen]);
+  const endpoints = useMemo(() => (side
+    ? summary.endpoints.filter((endpoint) => endpoint.protocol === side.protocol && endpoint.role === side.role)
+    : []), [summary, side?.protocol, side?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chosen = useMemo(() => endpoints.filter((endpoint) => ports.includes(endpoint.port)), [endpoints, ports]);
+  const ipSuggestions = useMemo(() => [...new Set(chosen.flatMap((endpoint) => endpoint.ips))], [chosen]);
   const highlight = useMemo(() => (summary.timeline?.length && chosen.length ? sumSeries(summary.timeline.length, chosen) : null), [summary.timeline, chosen]);
-  const tags = catalog.tags.filter((tag) => !tag.categoryId || tag.categoryId === categoryId);
+  const tags = catalog.tags.filter((tag) => tagAllowedIn(tag, categoryId));
 
   // a category change changes which ports and tags apply
   useEffect(() => {
     setPorts([]);
-    setTagIds((ids) => ids.filter((id) => catalog.tags.some((tag) => tag.id === id && (!tag.categoryId || tag.categoryId === categoryId))));
+    setTagIds((ids) => ids.filter((id) => catalog.tags.some((tag) => tag.id === id && tagAllowedIn(tag, categoryId))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryId]);
 
@@ -165,27 +167,33 @@ function PortPicker({ role, protocol, endpoints, ports, onToggle }: {
   role: 'dst' | 'src'; protocol: string; endpoints: Endpoint[]; ports: number[]; onToggle: (port: number) => void;
 }) {
   const { t } = useI18n();
-  const max = Math.max(1, ...endpoints.map((e) => e.packets));
+  const busiest = Math.max(1, ...endpoints.map((endpoint) => endpoint.packets));
   return (
     <div className="field">
       <label>{t('upload.ports')} — {role === 'dst' ? t('upload.portsDst') : t('upload.portsSrc')}</label>
       {endpoints.length === 0 ? <span className="hint">{t('upload.noPorts', { protocol })}</span> : (
         <div className="port-list">
-          {endpoints.map((e) => <PortRow key={e.port} e={e} max={max} on={ports.includes(e.port)} toggle={() => onToggle(e.port)} />)}
+          {endpoints.map((endpoint) => (
+            <PortRow key={endpoint.port} endpoint={endpoint} busiest={busiest} selected={ports.includes(endpoint.port)}
+              onToggle={() => onToggle(endpoint.port)} />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function PortRow({ e, max, on, toggle }: { e: Endpoint; max: number; on: boolean; toggle: () => void }) {
+/** @param busiest packet count of the busiest port, which gets a full-width bar */
+function PortRow({ endpoint, busiest, selected, onToggle }: {
+  endpoint: Endpoint; busiest: number; selected: boolean; onToggle: () => void;
+}) {
   const { t } = useI18n();
   return (
-    <label className={`port-row${on ? ' on' : ''}`}>
-      <input type="checkbox" checked={on} onChange={toggle} style={{ accentColor: 'var(--accent)' }} />
-      <span className="mono" style={{ fontWeight: 700 }}>{e.port}</span>
-      <div className="bar-mini"><div style={{ width: `${(e.packets / max) * 100}%` }} /></div>
-      <span className="small muted">{t('upload.packets', { n: formatNumber(e.packets) })} · {formatBytes(e.bytes)}</span>
+    <label className={`port-row${selected ? ' on' : ''}`}>
+      <input type="checkbox" checked={selected} onChange={onToggle} style={{ accentColor: 'var(--accent)' }} />
+      <span className="mono" style={{ fontWeight: 700 }}>{endpoint.port}</span>
+      <div className="bar-mini"><div style={{ width: `${(endpoint.packets / busiest) * 100}%` }} /></div>
+      <span className="small muted">{t('upload.packets', { n: formatNumber(endpoint.packets) })} · {formatBytes(endpoint.bytes)}</span>
     </label>
   );
 }

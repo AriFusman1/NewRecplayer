@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '../../i18n';
-import { formatUs, parseMs } from '../../util/time';
+import { formatUs, msToUs, parseMs } from '../../util/time';
 
 interface Props {
   label: string;
@@ -32,7 +32,7 @@ export function TimeField({ label, valueUs, isEnd, onChange }: Props) {
     }
     const parsedMs = parseMs(typed);
     setInvalid(parsedMs === null);
-    onChange(parsedMs === null ? null : parsedMs * 1000 + (isEnd ? 999_999 : 0));
+    onChange(parsedMs === null ? null : msToUs(parsedMs, isEnd));
   };
 
   return (

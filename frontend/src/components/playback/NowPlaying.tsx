@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
 import type { ItemRequest, Session, SessionItem } from '../../api/types';
 import { useI18n } from '../../i18n';
@@ -7,7 +7,7 @@ import { useAction } from '../../state/feedback';
 import { useLive } from '../../state/live';
 import { useNickname } from '../../state/nickname';
 import { moveItem } from '../../state/playlist';
-import { DEFAULT_PORT, formatTarget, initialHost, portValid, secondsToMs, toItemRequest } from '../../util/target';
+import { DEFAULT_PORT, formatTarget, initialHost, msToSeconds, portValid, secondsLeft, secondsToMs, toItemRequest } from '../../util/target';
 import { rememberTargets } from '../../util/targetMemory';
 import { ModeBadge } from '../common/Badges';
 import { Icon } from '../common/Icon';
@@ -67,15 +67,25 @@ function current(session: Session): SessionItem | undefined {
 
 function stateText(session: Session, t: ReturnType<typeof useI18n>['t']): string {
   const item = current(session);
-  return t(`state.${session.state}`, { port: item?.port ?? '', seconds: Math.ceil(session.sleepRemainingMs / 1000) });
+  return t(`state.${session.state}`, { port: item?.port ?? '', seconds: secondsLeft(session.sleepRemainingMs) });
+}
+
+function isPlaying(session: Session): boolean {
+  return session.state === 'PLAYING';
+}
+
+/** Commits an uncontrolled input on Enter by blurring it (its onBlur does the work). */
+function blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
+  if (event.key === 'Enter') event.currentTarget.blur();
 }
 
 function SessionPill({ session }: { session: Session }) {
   const { t } = useI18n();
   const item = current(session);
+  const playing = isPlaying(session);
   return (
     <span className="pill">
-      <span className={`dot${session.state === 'PLAYING' ? ' pulse' : ''}`} style={{ color: session.state === 'PLAYING' ? 'var(--success)' : 'var(--warning)' }} />
+      <span className={`dot${playing ? ' pulse' : ''}`} style={{ color: playing ? 'var(--success)' : 'var(--warning)' }} />
       <span className="ellipsis">{item?.recordName}</span>
       <span className="muted ellipsis">{stateText(session, t)}</span>
     </span>
@@ -90,6 +100,7 @@ function SessionCard({ session }: { session: Session }) {
   const item = current(session);
   if (!item) return null;
   const target = formatTarget(item.mode, item.host, item.port);
+  const playing = isPlaying(session);
 
   const stop = () => {
     setConfirm(false);
@@ -111,8 +122,8 @@ function SessionCard({ session }: { session: Session }) {
             <span>{item.categoryName}</span>·<span>{t('now.startedBy', { name: session.startedBy })}</span>
           </div>
         </div>
-        <span className={`badge ${session.state === 'PLAYING' ? 'ok' : 'warn'}`}>
-          <span className={`dot${session.state === 'PLAYING' ? ' pulse' : ''}`} />{stateText(session, t)}
+        <span className={`badge ${playing ? 'ok' : 'warn'}`}>
+          <span className={`dot${playing ? ' pulse' : ''}`} />{stateText(session, t)}
         </span>
         <button className="btn danger sm" onClick={() => setConfirm(true)}><Icon name="stop" size={12} />{t('common.stop')}</button>
       </div>
@@ -124,10 +135,10 @@ function SessionCard({ session }: { session: Session }) {
         <div className="row muted"><span className="spinner" />{stateText(session, t)}</div>
       )}
       {session.state === 'SLEEPING' && (
-        <div className="row"><Icon name="clock" /><span className="sleep-ring ltr">{Math.ceil(session.sleepRemainingMs / 1000)}session</span>
+        <div className="row"><Icon name="clock" /><span className="sleep-ring ltr">{secondsLeft(session.sleepRemainingMs)}s</span>
           <span className="muted">{stateText(session, t)}</span></div>
       )}
-      {session.progress && session.state !== 'SLEEPING' && <LiveView progress={session.progress} onSeek={session.state === 'PLAYING' ? seek : undefined} />}
+      {session.progress && session.state !== 'SLEEPING' && <LiveView progress={session.progress} onSeek={playing ? seek : undefined} />}
       {session.playlist && <PlaylistEditor session={session} />}
       <LogView lines={session.log} />
 
@@ -248,7 +259,7 @@ function SessionItemRow({ item, index, currentIndex, hasNext, sortable, onRetarg
         <div className="pl-sleep">
           {t('playlist.sleep')}
           <input key={`${item.itemId}-${item.sleepAfterMs}`} className="input mono" type="number" min={0} step={0.5}
-            defaultValue={item.sleepAfterMs / 1000} onBlur={(e) => onSleep(e.target.value)} />
+            defaultValue={msToSeconds(item.sleepAfterMs)} onBlur={(e) => onSleep(e.target.value)} />
           {t('common.seconds')}
         </div>
       )}
@@ -274,10 +285,10 @@ function EditableTarget({ item, onCommit }: { item: SessionItem; onCommit: (host
     <div className="row" style={{ marginTop: 4 }}>
       {item.mode !== 'TCP_CLIENT' && (
         <input key={`h-${key}`} className="input mono" style={{ width: 140, height: 28, direction: 'ltr' }} defaultValue={item.host ?? ''}
-          onBlur={(e) => commit(e.target.value.trim(), item.port)} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+          onBlur={(e) => commit(e.target.value.trim(), item.port)} onKeyDown={blurOnEnter} />
       )}
       <input key={`p-${key}`} className="input mono" style={{ width: 84, height: 28 }} type="number" defaultValue={item.port}
-        onBlur={(e) => commit(item.host, parseInt(e.target.value, 10))} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+        onBlur={(e) => commit(item.host, parseInt(e.target.value, 10))} onKeyDown={blurOnEnter} />
     </div>
   );
 }
