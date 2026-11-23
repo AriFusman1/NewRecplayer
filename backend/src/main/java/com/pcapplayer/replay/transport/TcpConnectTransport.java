@@ -2,23 +2,24 @@ package com.pcapplayer.replay.transport;
 
 import com.pcapplayer.replay.Control;
 import com.pcapplayer.replay.ReplayFailure;
-import com.pcapplayer.replay.StoppedException;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** TCP-server mode: the replayer is the TCP client and connects to the service. */
-public final class TcpConnectTransport implements Transport {
+public class TcpConnectTransport implements Transport {
 
     private final String host;
     private final int port;
     private final int connectTimeoutMs;
-    private volatile Socket socket;
-    private OutputStream out;
-    private volatile boolean expectedClose;
+    private final AtomicReference<Socket> socket = new AtomicReference<>();
+    private OutputStream out; // replay thread only
+    private final AtomicBoolean expectedClose = new AtomicBoolean();
 
     public TcpConnectTransport(String host, int port, int connectTimeoutMs) {
         this.host = host;
@@ -28,22 +29,22 @@ public final class TcpConnectTransport implements Transport {
 
     @Override
     public void open(Control control) {
-        Socket s = new Socket();
-        control.closeOnAbort(s);
+        Socket connecting = new Socket();
+        control.closeOnAbort(connecting);
         try {
-            s.setTcpNoDelay(true);
-            s.connect(new InetSocketAddress(host, port), connectTimeoutMs);
-            out = s.getOutputStream();
+            connecting.setTcpNoDelay(true);
+            connecting.connect(new InetSocketAddress(host, port), connectTimeoutMs);
+            out = connecting.getOutputStream();
         } catch (IOException e) {
-            closeQuietly(s);
+            Sockets.closeQuietly(connecting);
             control.checkAlive();
-            throw new ReplayFailure("CONNECT_FAILED", Map.of("target", host + ":" + port, "reason", reason(e)),
-                    "Connect to " + host + ":" + port + " failed: " + reason(e));
+            throw new ReplayFailure("CONNECT_FAILED", Map.of("target", host + ":" + port, "reason", Sockets.reason(e)),
+                    "Connect to " + host + ":" + port + " failed: " + Sockets.reason(e));
         }
-        expectedClose = false;
-        socket = s;
-        Drainer.start(s, "drain-" + host + ":" + port, reason -> {
-            if (!expectedClose && socket == s) {
+        expectedClose.set(false);
+        socket.set(connecting);
+        Drainer.start(connecting, "drain-" + host + ":" + port, reason -> {
+            if (!expectedClose.get() && socket.get() == connecting) {
                 control.fail(new ReplayFailure("CONNECTION_LOST", Map.of("target", host + ":" + port, "reason", reason),
                         "Connection to " + host + ":" + port + " dropped: " + reason));
             }
@@ -57,15 +58,15 @@ public final class TcpConnectTransport implements Transport {
             out.flush();
         } catch (IOException e) {
             control.checkAlive();
-            throw new ReplayFailure("CONNECTION_LOST", Map.of("target", host + ":" + port, "reason", reason(e)),
-                    "Write to " + host + ":" + port + " failed: " + reason(e));
+            throw new ReplayFailure("CONNECTION_LOST", Map.of("target", host + ":" + port, "reason", Sockets.reason(e)),
+                    "Write to " + host + ":" + port + " failed: " + Sockets.reason(e));
         }
     }
 
     @Override
     public void closeConnection() {
-        expectedClose = true;
-        closeQuietly(socket);
+        expectedClose.set(true);
+        Sockets.closeQuietly(socket.get());
     }
 
     @Override
@@ -83,16 +84,4 @@ public final class TcpConnectTransport implements Transport {
         closeConnection();
     }
 
-    static String reason(Exception e) {
-        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-    }
-
-    static void closeQuietly(AutoCloseable c) {
-        if (c == null) return;
-        try {
-            c.close();
-        } catch (Exception ignored) {
-            // best effort
-        }
-    }
 }

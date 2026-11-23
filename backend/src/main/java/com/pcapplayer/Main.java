@@ -1,26 +1,30 @@
 package com.pcapplayer;
 
 import com.pcapplayer.api.ApiServer;
-import com.pcapplayer.api.LiveHub;
-import com.pcapplayer.catalog.CatalogRepository;
-import com.pcapplayer.catalog.CatalogService;
-import com.pcapplayer.catalog.UploadService;
+import com.pcapplayer.api.live.LiveHub;
+import com.pcapplayer.catalog.repository.CatalogRepository;
+import com.pcapplayer.catalog.service.CatalogService;
 import com.pcapplayer.config.AppConfig;
 import com.pcapplayer.config.ConfigLoader;
-import com.pcapplayer.extract.CaptureScanner;
-import com.pcapplayer.extract.ExtractionSettings;
-import com.pcapplayer.extract.MessageExtractor;
+import com.pcapplayer.pcap.extract.CachingExtractor;
+import com.pcapplayer.pcap.extract.ExtractionSettings;
+import com.pcapplayer.pcap.extract.MessageExtractor;
+import com.pcapplayer.pcap.summary.CaptureScanner;
 import com.pcapplayer.replay.ReplayEngine;
+import com.pcapplayer.replay.model.HistoryEntry;
 import com.pcapplayer.storage.BlobStore;
 import com.pcapplayer.storage.FileCache;
-import com.pcapplayer.storage.FileSystemBlobStore;
-import com.pcapplayer.storage.S3BlobStore;
+import com.pcapplayer.storage.filesystem.FileSystemBlobStore;
+import com.pcapplayer.storage.s3.S3BlobStore;
+import com.pcapplayer.upload.UploadService;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -29,80 +33,113 @@ public final class Main {
 
     private static final Logger LOG = Logger.getLogger(Main.class.getName());
 
+    /** Uploads and parsing run on worker threads and may legitimately take long. */
+    private static final long MAX_WORKER_EXECUTE_MINUTES = 30;
+    private static final long PURGE_UPLOADS_EVERY_MS = TimeUnit.MINUTES.toMillis(5);
+    private static final long METADATA_RETRY_MS = TimeUnit.SECONDS.toMillis(5);
+    /** On shutdown, time for stopped items to write their history entries. */
+    private static final long SHUTDOWN_GRACE_MS = TimeUnit.SECONDS.toMillis(1);
+
     private Main() {
     }
 
     public static void main(String[] args) throws Exception {
-        AppConfig cfg = ConfigLoader.load(System.getenv());
-        Path work = Path.of(cfg.workDir());
+        AppConfig config = ConfigLoader.load(System.getenv());
+        Path work = Path.of(config.workDir());
 
-        BlobStore store = "filesystem".equalsIgnoreCase(cfg.storage().type())
-                ? new FileSystemBlobStore(Path.of(cfg.storage().filesystemRoot()))
-                : new S3BlobStore(new S3BlobStore.Settings(cfg.s3().endpoint(), cfg.s3().region(), cfg.s3().bucket(),
-                cfg.s3().accessKey(), cfg.s3().secretKey(), cfg.s3().pathStyle(), cfg.s3().prefix()));
+        BlobStore store = createBlobStore(config);
+        ExtractionSettings extractionSettings = extractionSettings(config);
+        CatalogRepository repo = new CatalogRepository(store, config.history().size());
+        FileCache cache = new FileCache(store, work.resolve("cache"), config.cache().maxBytes());
+        UploadService uploads = new UploadService(work.resolve("uploads"), new CaptureScanner(extractionSettings),
+                TimeUnit.MINUTES.toMillis(config.upload().expireMinutes()));
+        CachingExtractor extractor = new CachingExtractor(new MessageExtractor(extractionSettings)::extract,
+                config.extraction().cacheMaxBytes());
 
-        ExtractionSettings ex = new ExtractionSettings(
-                TimeUnit.MILLISECONDS.toNanos(cfg.extraction().fragmentTimeoutMs()),
-                TimeUnit.MILLISECONDS.toNanos(cfg.extraction().tcpGapTimeoutMs()),
-                TimeUnit.MILLISECONDS.toNanos(cfg.extraction().udpDuplicateWindowMs()));
-        CatalogRepository repo = new CatalogRepository(store, cfg.history().size());
-        FileCache cache = new FileCache(store, work.resolve("cache"), cfg.cache().maxBytes());
-        UploadService uploads = new UploadService(work.resolve("uploads"), new CaptureScanner(ex),
-                TimeUnit.MINUTES.toMillis(cfg.upload().expireMinutes()));
-
-        LiveHub[] hub = new LiveHub[1];
-        CatalogService catalog = new CatalogService(repo, uploads, cache, new MessageExtractor(ex),
-                cfg.histogram().maxBins(), () -> hub[0].catalogChanged());
-        hub[0] = new LiveHub(entry -> {
-            try {
-                catalog.addHistory(entry);
-            } catch (RuntimeException e) {
-                LOG.log(Level.WARNING, "Could not store history entry", e);
-            }
-        });
-        ReplayEngine engine = new ReplayEngine(catalog, hub[0], new ReplayEngine.Settings(cfg.replay().connectTimeoutMs()));
+        // The catalog notifies the hub of changes, and the hub stores history in the catalog.
+        AtomicReference<LiveHub> hubRef = new AtomicReference<>();
+        CatalogService catalog = new CatalogService(repo, uploads, cache, extractor,
+                config.histogram().maxBins(), () -> hubRef.get().catalogChanged());
+        LiveHub hub = new LiveHub(entry -> storeHistory(catalog, entry));
+        hubRef.set(hub);
+        ReplayEngine engine = new ReplayEngine(catalog.scriptSource(), hub,
+                new ReplayEngine.Settings(config.replay().connectTimeoutMs()));
 
         Vertx vertx = Vertx.vertx(new VertxOptions()
-                .setMaxWorkerExecuteTime(30).setMaxWorkerExecuteTimeUnit(TimeUnit.MINUTES));
-        hub[0].start(vertx, engine);
+                .setMaxWorkerExecuteTime(MAX_WORKER_EXECUTE_MINUTES).setMaxWorkerExecuteTimeUnit(TimeUnit.MINUTES));
+        hub.start(vertx, engine);
         AtomicBoolean ready = new AtomicBoolean();
-        ApiServer.start(vertx, cfg.server().host(), cfg.server().port(),
-                        new ApiServer.Services(catalog, repo, uploads, cache, engine, hub[0], store, ready::get))
-                .onSuccess(s -> LOG.info("PCAP Player listening on " + cfg.server().host() + ":" + s.actualPort()))
+        startHttp(vertx, config, new ApiServer.Services(catalog, uploads, cache, engine, hub, store, ready::get));
+        schedulePurge(vertx, uploads);
+        loadMetadata(vertx, repo, ready);
+        registerShutdownHook(vertx, engine);
+    }
+
+    private static BlobStore createBlobStore(AppConfig config) throws IOException {
+        if ("filesystem".equalsIgnoreCase(config.storage().type())) {
+            return new FileSystemBlobStore(Path.of(config.storage().filesystemRoot()));
+        }
+        AppConfig.S3 s3 = config.s3();
+        return new S3BlobStore(new S3BlobStore.Settings(s3.endpoint(), s3.region(), s3.bucket(),
+                s3.accessKey(), s3.secretKey(), s3.pathStyle(), s3.prefix()));
+    }
+
+    private static ExtractionSettings extractionSettings(AppConfig config) {
+        return new ExtractionSettings(
+                TimeUnit.MILLISECONDS.toNanos(config.extraction().fragmentTimeoutMs()),
+                TimeUnit.MILLISECONDS.toNanos(config.extraction().tcpGapTimeoutMs()),
+                TimeUnit.MILLISECONDS.toNanos(config.extraction().udpDuplicateWindowMs()));
+    }
+
+    /** History is best effort: a storage failure must not break the replay that produced the entry. */
+    private static void storeHistory(CatalogService catalog, HistoryEntry entry) {
+        try {
+            catalog.addHistory(entry);
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "Could not store history entry", e);
+        }
+    }
+
+    private static void startHttp(Vertx vertx, AppConfig config, ApiServer.Services services) {
+        ApiServer.start(vertx, config.server().host(), config.server().port(), services)
+                .onSuccess(server -> LOG.info("PCAP Player listening on " + config.server().host() + ":" + server.actualPort()))
                 .onFailure(e -> {
                     LOG.log(Level.SEVERE, "HTTP server failed to start", e);
                     System.exit(1);
                 });
+    }
 
-        vertx.setPeriodic(TimeUnit.MINUTES.toMillis(5), id -> vertx.executeBlocking(() -> {
+    private static void schedulePurge(Vertx vertx, UploadService uploads) {
+        vertx.setPeriodic(PURGE_UPLOADS_EVERY_MS, id -> vertx.executeBlocking(() -> {
             uploads.purgeExpired();
             return null;
         }, false));
-        loadMetadata(vertx, repo, ready);
-
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            engine.stopAll("server shutdown");
-            try {
-                Thread.sleep(1000); // let stopped items write their history entries
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-            vertx.close();
-        }));
     }
 
-    /** Readiness stays DOWN until the metadata is loaded; retries every 5 s (storage may start later). */
+    /** Readiness stays DOWN until the metadata is loaded; retries periodically (storage may start later). */
     private static void loadMetadata(Vertx vertx, CatalogRepository repo, AtomicBoolean ready) {
         vertx.executeBlocking(() -> {
             repo.load();
             return null;
-        }, false).onComplete(ar -> {
-            if (ar.succeeded()) {
+        }, false).onComplete(result -> {
+            if (result.succeeded()) {
                 ready.set(true);
             } else {
-                LOG.warning("Loading metadata failed, retrying in 5 s: " + ar.cause().getMessage());
-                vertx.setTimer(5000, id -> loadMetadata(vertx, repo, ready));
+                LOG.warning("Loading metadata failed, retrying in " + METADATA_RETRY_MS + " ms: " + result.cause().getMessage());
+                vertx.setTimer(METADATA_RETRY_MS, id -> loadMetadata(vertx, repo, ready));
             }
         });
+    }
+
+    private static void registerShutdownHook(Vertx vertx, ReplayEngine engine) {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            engine.stopAll("server shutdown");
+            try {
+                Thread.sleep(SHUTDOWN_GRACE_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            vertx.close();
+        }));
     }
 }

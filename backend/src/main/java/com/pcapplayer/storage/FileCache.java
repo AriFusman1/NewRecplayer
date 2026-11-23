@@ -8,18 +8,19 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
 /**
  * Local copies of stored captures (parsing needs a file). Downloads on demand and evicts the least
  * recently used copies above {@code maxBytes}.
  */
-public final class FileCache {
+public class FileCache {
 
     private final BlobStore store;
     private final Path dir;
     private final long maxBytes;
-    private final ConcurrentHashMap<String, Object> locks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();
 
     public FileCache(BlobStore store, Path dir, long maxBytes) throws IOException {
         this.store = store;
@@ -29,22 +30,26 @@ public final class FileCache {
 
     /** @return a local path for the object, downloading it if needed */
     public Path get(String objectKey) throws IOException {
-        Path p = pathFor(objectKey);
-        synchronized (locks.computeIfAbsent(objectKey, k -> new Object())) {
-            if (!Files.exists(p)) {
-                store.download(objectKey, p);
-                evict(p);
+        Path cached = pathFor(objectKey);
+        ReentrantLock lock = locks.computeIfAbsent(objectKey, newKey -> new ReentrantLock());
+        lock.lock();
+        try {
+            if (!Files.exists(cached)) {
+                store.download(objectKey, cached);
+                evict(cached);
             }
+        } finally {
+            lock.unlock();
         }
-        Files.setLastModifiedTime(p, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
-        return p;
+        Files.setLastModifiedTime(cached, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
+        return cached;
     }
 
     /** Adopts a just-uploaded file as the cached copy (moves it). */
     public void adopt(String objectKey, Path file) throws IOException {
-        Path p = pathFor(objectKey);
-        Files.move(file, p, StandardCopyOption.REPLACE_EXISTING);
-        evict(p);
+        Path cached = pathFor(objectKey);
+        Files.move(file, cached, StandardCopyOption.REPLACE_EXISTING);
+        evict(cached);
     }
 
     public void forget(String objectKey) throws IOException {
@@ -57,18 +62,18 @@ public final class FileCache {
 
     private void evict(Path keep) throws IOException {
         List<Path> all = new ArrayList<>();
-        try (Stream<Path> s = Files.list(dir)) {
-            s.filter(Files::isRegularFile).forEach(all::add);
+        try (Stream<Path> listing = Files.list(dir)) {
+            listing.filter(Files::isRegularFile).forEach(all::add);
         }
         long total = 0;
-        for (Path p : all) total += Files.size(p);
+        for (Path file : all) total += Files.size(file);
         if (total <= maxBytes) return;
-        all.sort(Comparator.comparingLong(p -> p.toFile().lastModified()));
-        for (Path p : all) {
+        all.sort(Comparator.comparingLong(file -> file.toFile().lastModified()));
+        for (Path file : all) {
             if (total <= maxBytes) break;
-            if (p.equals(keep)) continue;
-            total -= Files.size(p);
-            Files.deleteIfExists(p); // an open reader keeps working on POSIX
+            if (file.equals(keep)) continue;
+            total -= Files.size(file);
+            Files.deleteIfExists(file); // an open reader keeps working on POSIX
         }
     }
 }

@@ -1,12 +1,14 @@
 package com.pcapplayer.replay;
 
-/** Live counters of the item being played; written by the replay thread, read by snapshots. */
-public final class ItemProgress {
+import java.util.concurrent.atomic.AtomicLong;
 
-    private volatile long zeroNanos;       // System.nanoTime() of replay time zero; 0 = not started
-    private volatile long frozenPosition = -1; // position while waiting for a reconnect
-    private volatile long sentMessages;
-    private volatile long sentBytes;
+/** Live counters of the item being played; written by the replay thread, read by snapshots. */
+public class ItemProgress {
+
+    private final AtomicLong zeroNanos = new AtomicLong();          // System.nanoTime() of replay time zero; 0 = not started
+    private final AtomicLong frozenPosition = new AtomicLong(-1);  // position while waiting for a reconnect
+    private final AtomicLong sentMessages = new AtomicLong();
+    private final AtomicLong sentBytes = new AtomicLong();
     private final long durationNanos;
     private final long totalMessages;
 
@@ -16,32 +18,41 @@ public final class ItemProgress {
     }
 
     void start(long zero) {
-        zeroNanos = zero;
-        frozenPosition = -1;
+        zeroNanos.set(zero);
+        frozenPosition.set(-1);
     }
 
     void freeze(long position) {
-        frozenPosition = position;
+        frozenPosition.set(position);
+    }
+
+    /** Playback jumped: time zero moved and the counters now reflect what lies before the new position. */
+    void seek(long zero, long messagesBefore, long bytesBefore) {
+        sentMessages.set(messagesBefore);
+        sentBytes.set(bytesBefore);
+        start(zero);
     }
 
     void sent(int bytes) {
-        sentMessages++;
-        sentBytes += bytes;
+        sentMessages.incrementAndGet();
+        sentBytes.addAndGet(bytes);
     }
 
     /** Nanoseconds from range start that playback has reached. */
     public long positionNanos() {
-        if (frozenPosition >= 0) return frozenPosition;
-        if (zeroNanos == 0) return 0;
-        return Math.max(0, Math.min(durationNanos, System.nanoTime() - zeroNanos));
+        long frozen = frozenPosition.get();
+        if (frozen >= 0) return frozen;
+        long zero = zeroNanos.get();
+        if (zero == 0) return 0;
+        return Math.max(0, Math.min(durationNanos, System.nanoTime() - zero));
     }
 
     public long sentMessages() {
-        return sentMessages;
+        return sentMessages.get();
     }
 
     public long sentBytes() {
-        return sentBytes;
+        return sentBytes.get();
     }
 
     public long totalMessages() {

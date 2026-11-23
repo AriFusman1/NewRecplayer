@@ -1,7 +1,12 @@
+# Keep the build context small and builds reproducible: only sources go in.
 **/node_modules
 frontend/dist
 backend/target
 backend/src/main/resources/webroot
 .git
+.idea
+**/*.iml
 *.md
 !README.md
+# your configuration holds secrets: never bake it into the image (mount it instead)
+config/application.yml

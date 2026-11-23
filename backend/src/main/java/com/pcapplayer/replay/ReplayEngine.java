@@ -1,32 +1,49 @@
 package com.pcapplayer.replay;
 
-import com.pcapplayer.extract.ConnectionMode;
+import com.pcapplayer.pcap.script.EConnectionMode;
+import com.pcapplayer.replay.model.ItemRequest;
+import com.pcapplayer.replay.model.ReplayListener;
+import com.pcapplayer.replay.model.ScriptSource;
+import com.pcapplayer.replay.model.SessionView;
+import com.pcapplayer.replay.model.Target;
 import com.pcapplayer.replay.transport.Transport;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * All running sessions (in memory; the app runs as a single replica). Guarantees that no two
  * running items play to the same target IP:port or listen on the same port.
  */
-public final class ReplayEngine {
+public class ReplayEngine {
 
     public record Settings(int connectTimeoutMs) {
     }
 
+    private static final int PREFETCH_THREADS = 2;
+
     private final ScriptSource source;
     private final ReplayListener listener;
     private final Settings settings;
-    private final Map<String, ReplaySession> sessions = new LinkedHashMap<>(); // guarded by this
-    private final Map<String, ReplaySession> locks = new HashMap<>();          // guarded by this
+    private final ConcurrentMap<String, ReplaySession> sessions = new ConcurrentHashMap<>();
+    /** Reserved targets ("ip:port" or "listen:port") and the session holding each. */
+    private final ConcurrentMap<String, ReplaySession> locks = new ConcurrentHashMap<>();
+    /** Low-priority threads that prepare upcoming playlist items ahead of time (warming the script cache). */
+    private final ExecutorService prefetcher = Executors.newFixedThreadPool(PREFETCH_THREADS, task -> {
+        Thread thread = new Thread(task, "replay-prefetch");
+        thread.setDaemon(true);
+        thread.setPriority(Thread.MIN_PRIORITY);
+        return thread;
+    });
 
     public ReplayEngine(ScriptSource source, ReplayListener listener, Settings settings) {
         this.source = source;
@@ -59,17 +76,15 @@ public final class ReplayEngine {
         ReplaySession session = new ReplaySession(this, playlist, startedBy, items);
         ReplaySession.Item first = session.firstItem();
         String key = acquire(first.info.mode(), first.target, session);
-        Transport t = null;
+        Transport transport = null;
         try {
-            if (first.info.mode() == ConnectionMode.TCP_CLIENT) t = session.createTransport(first);
-        } catch (ReplayFailure f) {
+            if (first.info.mode() == EConnectionMode.TCP_CLIENT) transport = session.createTransport(first);
+        } catch (ReplayFailure failure) {
             release(key, session);
-            throw f;
+            throw failure;
         }
-        session.preAcquired(key, t);
-        synchronized (this) {
-            sessions.put(session.id, session);
-        }
+        session.preAcquired(key, transport);
+        sessions.put(session.id, session);
         Thread thread = new Thread(session, "replay-" + session.id.substring(0, 8));
         thread.setPriority(Thread.MAX_PRIORITY);
         thread.start();
@@ -77,89 +92,89 @@ public final class ReplayEngine {
         return session.view();
     }
 
-    public void stop(String sessionId, String by) {
-        ReplaySession s;
-        synchronized (this) {
-            s = sessions.get(sessionId);
-        }
-        if (s == null) throw new ReplayFailure("SESSION_NOT_FOUND", Map.of(), "No such running replay");
-        s.stop(by);
+    public void stop(String sessionId, String requestedBy) {
+        require(sessionId).stop(requestedBy);
+    }
+
+    /** Jumps a session's current item to another position (µs from its range start). */
+    public void seek(String sessionId, long positionUs, String requestedBy) {
+        require(sessionId).seek(positionUs, requestedBy);
+        changed();
     }
 
     /** Edits a running playlist: everything after the current item is replaced. */
     public SessionView updateUpcoming(String sessionId, Long currentSleepAfterMs, List<ItemRequest> upcoming) {
-        ReplaySession s;
-        synchronized (this) {
-            s = sessions.get(sessionId);
-        }
-        if (s == null) throw new ReplayFailure("SESSION_NOT_FOUND", Map.of(), "No such running replay");
-        s.replaceUpcoming(currentSleepAfterMs, toItems(upcoming));
+        ReplaySession session = require(sessionId);
+        session.replaceUpcoming(currentSleepAfterMs, toItems(upcoming));
         changed();
-        return s.view();
+        return session.view();
     }
 
     public List<SessionView> views() {
-        List<ReplaySession> list;
-        synchronized (this) {
-            list = new ArrayList<>(sessions.values());
-        }
-        list.sort(Comparator.comparingLong(s -> s.startedAtMs));
+        List<ReplaySession> list = snapshot();
+        list.sort(Comparator.comparingLong(session -> session.startedAtMs));
         return list.stream().map(ReplaySession::view).toList();
     }
 
-    public synchronized boolean anyRunning() {
+    public boolean anyRunning() {
         return !sessions.isEmpty();
     }
 
     /** Stops everything (shutdown). */
-    public void stopAll(String by) {
-        List<ReplaySession> list;
-        synchronized (this) {
-            list = new ArrayList<>(sessions.values());
-        }
-        list.forEach(s -> s.stop(by));
+    public void stopAll(String requestedBy) {
+        snapshot().forEach(session -> session.stop(requestedBy));
+    }
+
+    private ReplaySession require(String sessionId) {
+        ReplaySession session = sessions.get(sessionId);
+        if (session == null) throw new ReplayFailure("SESSION_NOT_FOUND", Map.of(), "No such running replay");
+        return session;
+    }
+
+    private List<ReplaySession> snapshot() {
+        return new ArrayList<>(sessions.values());
     }
 
     private List<ReplaySession.Item> toItems(List<ItemRequest> requests) {
         List<ReplaySession.Item> items = new ArrayList<>();
-        for (ItemRequest r : requests) {
-            ScriptSource.RecordInfo info = source.describe(r.recordId());
-            validateTarget(info.mode(), r.target());
-            items.add(new ReplaySession.Item(UUID.randomUUID().toString(), info, r.target(), Math.max(0, r.sleepAfterMs())));
+        for (ItemRequest request : requests) {
+            ScriptSource.RecordInfo info = source.describe(request.recordId());
+            validateTarget(info.mode(), request.target());
+            items.add(new ReplaySession.Item(UUID.randomUUID().toString(), info, request.target(), Math.max(0, request.sleepAfterMs())));
         }
         return items;
     }
 
-    private static void validateTarget(ConnectionMode mode, Target t) {
-        if (t == null || t.port() < 1 || t.port() > 65535) {
+    private static void validateTarget(EConnectionMode mode, Target target) {
+        if (target == null || target.port() < 1 || target.port() > 65535) {
             throw new ReplayFailure("INVALID_TARGET", Map.of(), "Port must be 1-65535");
         }
-        if (mode != ConnectionMode.TCP_CLIENT && (t.host() == null || t.host().isBlank())) {
+        if (mode != EConnectionMode.TCP_CLIENT && (target.host() == null || target.host().isBlank())) {
             throw new ReplayFailure("INVALID_TARGET", Map.of(), "Target IP is required");
         }
     }
 
     // ------------------------------------------------------------------ locks
 
-    String acquire(ConnectionMode mode, Target target, ReplaySession owner) {
+    String acquire(EConnectionMode mode, Target target, ReplaySession owner) {
         String key = lockKey(mode, target);
-        synchronized (this) {
-            ReplaySession holder = locks.get(key);
+        // atomic check-and-reserve; throwing leaves the map unchanged
+        locks.compute(key, (reserved, holder) -> {
             if (holder != null && holder != owner) {
                 throw new ReplayFailure("TARGET_BUSY", Map.of("target", target.describe(mode), "by", holder.startedBy),
                         target.describe(mode) + " is already in use by a replay started by " + holder.startedBy);
             }
-            locks.put(key, owner);
-        }
+            return owner;
+        });
         return key;
     }
 
-    synchronized void release(String key, ReplaySession owner) {
+    void release(String key, ReplaySession owner) {
         if (key != null) locks.remove(key, owner);
     }
 
-    private static String lockKey(ConnectionMode mode, Target target) {
-        if (mode == ConnectionMode.TCP_CLIENT) return "listen:" + target.port();
+    private static String lockKey(EConnectionMode mode, Target target) {
+        if (mode == EConnectionMode.TCP_CLIENT) return "listen:" + target.port();
         String host = target.host().trim();
         try {
             host = InetAddress.getByName(host).getHostAddress();
@@ -171,15 +186,27 @@ public final class ReplayEngine {
 
     // ------------------------------------------------------------------ callbacks from sessions
 
+    /**
+     * Prepares a record in the background so a playlist's next item starts without parsing.
+     * Best effort: a failure here shows up again (and is reported) when the item actually starts.
+     */
+    void prefetch(String recordId) {
+        prefetcher.execute(() -> {
+            try {
+                source.prepare(recordId);
+            } catch (RuntimeException ignored) {
+                // reported when the item is played
+            }
+        });
+    }
+
     void changed() {
         listener.sessionsChanged();
     }
 
-    void finished(ReplaySession s) {
-        synchronized (this) {
-            sessions.remove(s.id);
-            locks.values().removeIf(v -> v == s);
-        }
+    void finished(ReplaySession session) {
+        sessions.remove(session.id);
+        locks.values().removeIf(holder -> holder == session);
         changed();
     }
 }

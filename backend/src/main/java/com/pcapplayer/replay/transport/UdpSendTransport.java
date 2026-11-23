@@ -11,7 +11,7 @@ import java.net.InetSocketAddress;
 import java.util.Map;
 
 /** UDP-server mode: each message is one datagram to host:port from an ephemeral local port. */
-public final class UdpSendTransport implements Transport {
+public class UdpSendTransport implements Transport {
 
     private final String host;
     private final int port;
@@ -30,8 +30,8 @@ public final class UdpSendTransport implements Transport {
             socket = new DatagramSocket();
             control.closeOnAbort(socket);
         } catch (IOException e) {
-            throw new ReplayFailure("CONNECT_FAILED", Map.of("target", host + ":" + port, "reason", TcpConnectTransport.reason(e)),
-                    "Cannot send to " + host + ":" + port + ": " + TcpConnectTransport.reason(e));
+            throw new ReplayFailure("CONNECT_FAILED", Map.of("target", host + ":" + port, "reason", Sockets.reason(e)),
+                    "Cannot send to " + host + ":" + port + ": " + Sockets.reason(e));
         }
     }
 
@@ -41,8 +41,8 @@ public final class UdpSendTransport implements Transport {
             socket.send(new DatagramPacket(data, data.length, target));
         } catch (IOException e) {
             control.checkAlive();
-            throw new ReplayFailure("SEND_FAILED", Map.of("target", host + ":" + port, "reason", TcpConnectTransport.reason(e)),
-                    "UDP send to " + host + ":" + port + " failed: " + TcpConnectTransport.reason(e));
+            throw new ReplayFailure("SEND_FAILED", Map.of("target", host + ":" + port, "reason", Sockets.reason(e)),
+                    "UDP send to " + host + ":" + port + " failed: " + Sockets.reason(e));
         }
     }
 

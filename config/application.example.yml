@@ -1,0 +1,28 @@
+# Your PCAP Player configuration: where storage is and its credentials.
+#
+#   1. Copy this file to config/application.yml (same folder).
+#   2. Fill in your values. Delete what you don't need: anything left out keeps its default.
+#
+# config/application.yml is ignored by git and by the Docker build, so your secrets stay out of the
+# repository and out of the image. The app finds it automatically when started from the repository
+# root (in Docker: mount it at /app/config/application.yml). Another location: set CONFIG_FILE.
+# Environment variables still override anything here (s3.secret-key -> S3_SECRET_KEY).
+# All available keys and their defaults: backend/src/main/resources/application.yml.
+
+storage:
+  # s3 | filesystem (filesystem keeps everything in a local folder; for local use only)
+  type: s3
+
+s3:
+  # S3 address. Empty = AWS. For MinIO / Ceph / other S3-compatible servers, e.g. http://minio.internal:9000
+  endpoint: "http://minio.example.internal:9000"
+  region: us-east-1
+  # must already exist
+  bucket: pcap-player
+  # Empty keys = the AWS default credential chain (environment, profile, IRSA, ...)
+  access-key: "CHANGE_ME"
+  secret-key: "CHANGE_ME"
+  # true for MinIO and most S3-compatible servers
+  path-style: true
+  # optional key prefix inside the bucket, e.g. "pcap-player/"
+  prefix: ""

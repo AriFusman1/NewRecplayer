@@ -37,16 +37,16 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   const [popups, setPopups] = useState<Popup[]>([]);
   const nextId = useRef(1);
 
-  const dismissToast = useCallback((id: number) => setToasts((l) => l.filter((x) => x.id !== id)), []);
+  const dismissToast = useCallback((id: number) => setToasts((current) => current.filter((toast) => toast.id !== id)), []);
 
   const toast = useCallback((level: Level, text: string) => {
     const id = nextId.current++;
-    setToasts((l) => [...l.slice(-4), { id, level, text }]);
+    setToasts((current) => [...current.slice(-4), { id, level, text }]);
     window.setTimeout(() => dismissToast(id), level === 'error' ? 8000 : 4000);
   }, [dismissToast]);
 
   const popup = useCallback((title: string, text: string, level: Level = 'error') => {
-    setPopups((l) => [...l, { title, text, level }]);
+    setPopups((current) => [...current, { title, text, level }]);
   }, []);
 
   const showError = useCallback((e: unknown) => {
@@ -54,7 +54,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       // validation answers carry all problems; show each on its own line
       const errors = (e.params?.errors as { code: string; params: Record<string, unknown> }[] | undefined) ?? null;
       const text = errors
-        ? errors.map((x) => tc('err', x.code, x.params)).join('\n')
+        ? errors.map((problem) => tc('err', problem.code, problem.params)).join('\n')
         : tc('err', e.code, { ...e.params, message: e.message }, e.message);
       popup(t('err.title'), text);
     } else {
@@ -62,7 +62,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
     }
   }, [popup, t, tc]);
 
-  const dismissPopup = useCallback(() => setPopups((l) => l.slice(1)), []);
+  const dismissPopup = useCallback(() => setPopups((current) => current.slice(1)), []);
 
   return (
     <Ctx.Provider value={{ toast, popup, showError, toasts, current: popups[0] ?? null, dismissPopup, dismissToast }}>
@@ -72,7 +72,32 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
 }
 
 export function useFeedback(): Feedback {
-  const v = useContext(Ctx);
-  if (!v) throw new Error('useFeedback outside provider');
-  return v;
+  const feedback = useContext(Ctx);
+  if (!feedback) throw new Error('useFeedback outside provider');
+  return feedback;
+}
+
+/**
+ * Runs a server action with the shared error handling: errors pop up translated, an optional
+ * success toast is shown, and `busy` is true while it runs.
+ *
+ * @returns from `run`: true if the action succeeded
+ */
+export function useAction() {
+  const { showError, toast } = useFeedback();
+  const [busy, setBusy] = useState(false);
+  const run = useCallback(async (action: () => Promise<unknown>, success?: string): Promise<boolean> => {
+    setBusy(true);
+    try {
+      await action();
+      if (success) toast('success', success);
+      return true;
+    } catch (e) {
+      showError(e);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [showError, toast]);
+  return { run, busy };
 }

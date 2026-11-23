@@ -24,6 +24,8 @@
         <pcap4j.version>1.8.2</pcap4j.version>
         <!-- pcap4j 1.8.2 is built against JNA 5.3.1; a newer 5.x is backward compatible -->
         <jna.version>5.14.0</jna.version>
+        <!-- in-memory cache of parsed captures (size-bounded, one load per key) -->
+        <caffeine.version>3.1.8</caffeine.version>
 
         <junit.version>5.11.4</junit.version>
 
@@ -103,6 +105,11 @@
             <groupId>org.pcap4j</groupId>
             <artifactId>pcap4j-packetfactory-static</artifactId>
             <version>${pcap4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>${caffeine.version}</version>
         </dependency>
 
         <!-- S3 client; the Netty and Apache HTTP clients are excluded in favour of the

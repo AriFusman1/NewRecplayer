@@ -1,7 +1,7 @@
 package com.pcapplayer.testsupport;
 
-import com.pcapplayer.capture.CaptureReader;
-import com.pcapplayer.capture.CaptureReaders;
+import com.pcapplayer.pcap.capture.CaptureReader;
+import com.pcapplayer.pcap.capture.CaptureReaders;
 import org.junit.jupiter.api.Assumptions;
 
 import java.io.ByteArrayOutputStream;
@@ -13,7 +13,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 /** Writes classic pcap and pcapng files for tests. */
-public final class CaptureFiles {
+public class CaptureFiles {
 
     public static final int LINKTYPE_ETHERNET = 1;
     public static final int LINKTYPE_LINUX_SLL2 = 276;

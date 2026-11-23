@@ -1,25 +1,29 @@
 package com.pcapplayer.api;
 
-import com.pcapplayer.replay.ReplayFailure;
-import com.pcapplayer.util.ApiException;
+import com.pcapplayer.error.ApiException;
 import com.pcapplayer.util.Json;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.RoutingContext;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /** Small helpers shared by the route classes: run blocking work, read JSON bodies, write JSON / errors. */
-final class Http {
+public class Http {
+
+    public static final int OK = HttpResponseStatus.OK.code();
+    public static final int CREATED = HttpResponseStatus.CREATED.code();
+    public static final int NO_CONTENT = HttpResponseStatus.NO_CONTENT.code();
+    public static final int NOT_FOUND = HttpResponseStatus.NOT_FOUND.code();
+    public static final int SERVICE_UNAVAILABLE = HttpResponseStatus.SERVICE_UNAVAILABLE.code();
+    private static final int INTERNAL_SERVER_ERROR = HttpResponseStatus.INTERNAL_SERVER_ERROR.code();
 
     private static final Logger LOG = Logger.getLogger(Http.class.getName());
-    private static final Set<String> CONFLICT_CODES = Set.of("TARGET_BUSY", "LISTEN_FAILED");
-    private static final Set<String> NOT_FOUND_CODES = Set.of("SESSION_NOT_FOUND", "RECORD_NOT_FOUND");
 
     private final Vertx vertx;
 
@@ -28,58 +32,71 @@ final class Http {
     }
 
     /** Runs {@code work} on the worker pool and answers with its result as JSON (204 if null). */
-    <T> void blocking(RoutingContext ctx, Callable<T> work) {
-        blocking(ctx, 200, work);
+    public <T> void blocking(RoutingContext context, Callable<T> work) {
+        blocking(context, OK, work);
     }
 
-    <T> void blocking(RoutingContext ctx, int status, Callable<T> work) {
-        vertx.<T>executeBlocking(work, false).onComplete(ar -> {
-            if (ar.succeeded()) json(ctx, ar.result() == null ? 204 : status, ar.result());
-            else error(ctx, ar.cause());
+    /** Like {@link #blocking(RoutingContext, Callable)}, answering 201 Created. */
+    public <T> void blockingCreated(RoutingContext context, Callable<T> work) {
+        blocking(context, CREATED, work);
+    }
+
+    private <T> void blocking(RoutingContext context, int status, Callable<T> work) {
+        vertx.<T>executeBlocking(work, false).onComplete(result -> {
+            if (result.succeeded()) json(context, result.result() == null ? NO_CONTENT : status, result.result());
+            else error(context, result.cause());
         });
     }
 
-    static <T> T body(RoutingContext ctx, Class<T> type) {
-        if (ctx.body() == null || ctx.body().buffer() == null || ctx.body().length() == 0) {
-            throw ApiException.bad("BODY_REQUIRED", "Request body is required");
+    public static <T> T body(RoutingContext context, Class<T> type) {
+        if (context.body() == null || context.body().buffer() == null || context.body().length() == 0) {
+            throw ApiException.badRequest("BODY_REQUIRED", "Request body is required");
         }
         try {
-            return Json.MAPPER.readValue(ctx.body().buffer().getBytes(), type);
+            return Json.MAPPER.readValue(context.body().buffer().getBytes(), type);
         } catch (IOException e) {
-            throw ApiException.bad("BAD_JSON", "Malformed JSON: " + e.getMessage());
+            throw ApiException.badRequest("BAD_JSON", "Malformed JSON: " + e.getMessage());
         }
     }
 
-    static void json(RoutingContext ctx, int status, Object value) {
-        if (ctx.response().ended()) return;
-        ctx.response().setStatusCode(status);
-        if (status == 204) {
-            ctx.response().end();
+    public static void json(RoutingContext context, int status, Object value) {
+        if (context.response().ended()) return;
+        context.response().setStatusCode(status);
+        if (status == NO_CONTENT) {
+            context.response().end();
             return;
         }
-        ctx.response().putHeader("content-type", "application/json; charset=utf-8").end(Json.string(value));
+        context.response().putHeader("content-type", "application/json; charset=utf-8").end(Json.string(value));
     }
 
-    static void error(RoutingContext ctx, Throwable t) {
-        int status;
-        Map<String, Object> body = new LinkedHashMap<>();
-        if (t instanceof ApiException e) {
-            status = e.status();
-            body.put("code", e.code());
-            body.put("message", e.getMessage());
-            body.put("params", e.params());
-        } else if (t instanceof ReplayFailure f) {
-            status = CONFLICT_CODES.contains(f.code()) ? 409 : NOT_FOUND_CODES.contains(f.code()) ? 404 : 422;
-            body.put("code", f.code());
-            body.put("message", f.getMessage());
-            body.put("params", f.params());
-        } else {
-            LOG.log(Level.SEVERE, "Unhandled error on " + ctx.request().method() + " " + ctx.request().path(), t);
-            status = 500;
-            body.put("code", "INTERNAL_ERROR");
-            body.put("message", String.valueOf(t.getMessage()));
-            body.put("params", Map.of());
+    /** Runs {@code work} on the worker pool and answers 204 No Content. */
+    public void blockingVoid(RoutingContext context, ThrowingRunnable work) {
+        blocking(context, () -> {
+            work.run();
+            return null;
+        });
+    }
+
+    @FunctionalInterface
+    public interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    /** {@link ApiException}s (including replay failures) become {code, message, params}; anything else is a 500. */
+    public static void error(RoutingContext context, Throwable failure) {
+        if (failure instanceof ApiException e) {
+            json(context, e.status(), errorBody(e.code(), e.getMessage(), e.params()));
+            return;
         }
-        json(ctx, status, body);
+        LOG.log(Level.SEVERE, "Unhandled error on " + context.request().method() + " " + context.request().path(), failure);
+        json(context, INTERNAL_SERVER_ERROR, errorBody("INTERNAL_ERROR", String.valueOf(failure.getMessage()), Map.of()));
+    }
+
+    private static Map<String, Object> errorBody(String code, String message, Map<String, Object> params) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", code);
+        body.put("message", message);
+        body.put("params", params);
+        return body;
     }
 }

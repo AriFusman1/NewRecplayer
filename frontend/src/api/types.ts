@@ -63,11 +63,26 @@ export interface FileView {
   endUs: number;
 }
 
+/** A saved playlist item has the same shape as an item to play. */
+export type SavedPlaylistItem = ItemRequest;
+
+/** A named playlist stored on the server, shared by everyone. */
+export interface SavedPlaylist {
+  id: string;
+  name: string;
+  items: SavedPlaylistItem[];
+  createdBy: string;
+  createdAtMs: number;
+  updatedBy: string;
+  updatedAtMs: number;
+}
+
 export interface Catalog {
   categories: Category[];
   tags: Tag[];
   records: PcapRecord[];
   files: FileView[];
+  playlists: SavedPlaylist[];
 }
 
 export interface Endpoint {
@@ -77,6 +92,10 @@ export interface Endpoint {
   packets: number;
   bytes: number;
   ips: string[];
+  /** First timeline bucket with packets; absent on summaries stored before timelines existed. */
+  binFrom?: number;
+  /** Payload packets per bucket from binFrom. */
+  counts?: number[];
 }
 
 export interface CaptureSummary {
@@ -88,6 +107,10 @@ export interface CaptureSummary {
   udpPackets: number;
   endpoints: Endpoint[];
   warnings: Problem[];
+  /** Width of a timeline bucket; absent/0 on older summaries. */
+  binUs?: number;
+  /** TCP/UDP packets per bucket from startUs. */
+  timeline?: number[];
 }
 
 export interface SameFile {

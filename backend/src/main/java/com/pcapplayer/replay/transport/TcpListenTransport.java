@@ -13,22 +13,23 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * TCP-client mode: the replayer is the TCP server. It listens on a port and waits for the service
  * to connect. While a client is connected (or one is queued) further connections are refused
  * (accepted and closed at once).
  */
-public final class TcpListenTransport implements Transport {
+public class TcpListenTransport implements Transport {
 
     private final int port;
     private ServerSocket server;
     private final BlockingQueue<Socket> incoming = new LinkedBlockingQueue<>();
     private final AtomicBoolean slotTaken = new AtomicBoolean();
-    private volatile Socket client;
-    private OutputStream out;
-    private volatile boolean expectedClose;
-    private volatile boolean closed;
+    private final AtomicReference<Socket> client = new AtomicReference<>();
+    private OutputStream out; // replay thread only
+    private final AtomicBoolean expectedClose = new AtomicBoolean();
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public TcpListenTransport(int port) {
         this.port = port;
@@ -37,13 +38,13 @@ public final class TcpListenTransport implements Transport {
     /** Binds the port now so "port in use" is reported before the replay is accepted. */
     public void bind() {
         try {
-            ServerSocket s = new ServerSocket();
-            s.setReuseAddress(true);
-            s.bind(new InetSocketAddress(port));
-            server = s;
+            ServerSocket bound = new ServerSocket();
+            bound.setReuseAddress(true);
+            bound.bind(new InetSocketAddress(port));
+            server = bound;
         } catch (IOException e) {
-            throw new ReplayFailure("LISTEN_FAILED", Map.of("port", port, "reason", TcpConnectTransport.reason(e)),
-                    "Cannot listen on port " + port + ": " + TcpConnectTransport.reason(e));
+            throw new ReplayFailure("LISTEN_FAILED", Map.of("port", port, "reason", Sockets.reason(e)),
+                    "Cannot listen on port " + port + ": " + Sockets.reason(e));
         }
         Thread acceptor = new Thread(this::acceptLoop, "accept-" + port);
         acceptor.setDaemon(true);
@@ -51,17 +52,17 @@ public final class TcpListenTransport implements Transport {
     }
 
     private void acceptLoop() {
-        while (!closed) {
+        while (!closed.get()) {
             try {
-                Socket s = server.accept();
+                Socket accepted = server.accept();
                 if (slotTaken.compareAndSet(false, true)) {
-                    incoming.add(s);
+                    incoming.add(accepted);
                 } else {
-                    s.setSoLinger(true, 0); // refuse: reset immediately
-                    s.close();
+                    accepted.setSoLinger(true, 0); // refuse: reset immediately
+                    accepted.close();
                 }
             } catch (IOException e) {
-                if (closed) return;
+                if (closed.get()) return;
             }
         }
     }
@@ -74,28 +75,28 @@ public final class TcpListenTransport implements Transport {
     }
 
     private void awaitClient(Control control) {
-        Socket s;
+        Socket connected;
         try {
             do {
                 control.checkAlive();
-                s = incoming.poll(50, TimeUnit.MILLISECONDS);
-            } while (s == null);
+                connected = incoming.poll(50, TimeUnit.MILLISECONDS);
+            } while (connected == null);
         } catch (InterruptedException e) {
             control.checkAlive();
             throw new IllegalStateException(e);
         }
         try {
-            s.setTcpNoDelay(true);
-            out = s.getOutputStream();
+            connected.setTcpNoDelay(true);
+            out = connected.getOutputStream();
         } catch (IOException e) {
-            throw new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", port, "reason", TcpConnectTransport.reason(e)),
-                    "Client disconnected: " + TcpConnectTransport.reason(e));
+            throw new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", port, "reason", Sockets.reason(e)),
+                    "Client disconnected: " + Sockets.reason(e));
         }
-        expectedClose = false;
-        client = s;
-        final Socket accepted = s;
-        Drainer.start(s, "drain-listen-" + port, reason -> {
-            if (!expectedClose && client == accepted) {
+        expectedClose.set(false);
+        client.set(connected);
+        final Socket accepted = connected;
+        Drainer.start(connected, "drain-listen-" + port, reason -> {
+            if (!expectedClose.get() && client.get() == accepted) {
                 control.fail(new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", port, "reason", reason),
                         "Client disconnected from port " + port + ": " + reason));
             }
@@ -109,16 +110,15 @@ public final class TcpListenTransport implements Transport {
             out.flush();
         } catch (IOException e) {
             control.checkAlive();
-            throw new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", port, "reason", TcpConnectTransport.reason(e)),
-                    "Client disconnected from port " + port + ": " + TcpConnectTransport.reason(e));
+            throw new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", port, "reason", Sockets.reason(e)),
+                    "Client disconnected from port " + port + ": " + Sockets.reason(e));
         }
     }
 
     @Override
     public void closeConnection() {
-        expectedClose = true;
-        TcpConnectTransport.closeQuietly(client);
-        client = null;
+        expectedClose.set(true);
+        Sockets.closeQuietly(client.getAndSet(null));
         slotTaken.set(false);
     }
 
@@ -134,10 +134,10 @@ public final class TcpListenTransport implements Transport {
 
     @Override
     public void close() {
-        closed = true;
+        closed.set(true);
         closeConnection();
-        TcpConnectTransport.closeQuietly(server);
-        Socket s;
-        while ((s = incoming.poll()) != null) TcpConnectTransport.closeQuietly(s);
+        Sockets.closeQuietly(server);
+        Socket leftover;
+        while ((leftover = incoming.poll()) != null) Sockets.closeQuietly(leftover);
     }
 }

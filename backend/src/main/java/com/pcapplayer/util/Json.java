@@ -17,17 +17,17 @@ public final class Json {
     private Json() {
     }
 
-    public static byte[] bytes(Object o) {
+    public static byte[] bytes(Object value) {
         try {
-            return MAPPER.writeValueAsBytes(o);
+            return MAPPER.writeValueAsBytes(value);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
-    public static String string(Object o) {
+    public static String string(Object value) {
         try {
-            return MAPPER.writeValueAsString(o);
+            return MAPPER.writeValueAsString(value);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

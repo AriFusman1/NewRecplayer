@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from '../api/client';
-import type { Catalog, Category, FileView, PcapRecord, Tag } from '../api/types';
+import type { Catalog, Category, FileView, Mode, PcapRecord, Tag } from '../api/types';
 
 interface CatalogState {
   catalog: Catalog;
@@ -10,9 +10,11 @@ interface CatalogState {
   tagById: Map<string, Tag>;
   fileById: Map<string, FileView>;
   recordById: Map<string, PcapRecord>;
+  /** The connection mode of a record (from its category), or undefined if either is gone. */
+  modeOf: (recordId: string) => Mode | undefined;
 }
 
-const EMPTY: Catalog = { categories: [], tags: [], records: [], files: [] };
+const EMPTY: Catalog = { categories: [], tags: [], records: [], files: [], playlists: [] };
 const Ctx = createContext<CatalogState | null>(null);
 
 /** Categories, tags, records and files; refetched whenever the server announces a change. */
@@ -22,7 +24,8 @@ export function CatalogProvider({ children, changeSignal }: { children: ReactNod
 
   const reload = useCallback(async () => {
     try {
-      setCatalog(await api.catalog());
+      const loaded = await api.catalog();
+      setCatalog({ ...loaded, playlists: loaded.playlists ?? [] });
       setLoaded(true);
     } catch {
       /* server not ready yet; the next change signal or reconnect retries */
@@ -33,21 +36,29 @@ export function CatalogProvider({ children, changeSignal }: { children: ReactNod
     void reload();
   }, [reload, changeSignal]);
 
-  const value = useMemo<CatalogState>(() => ({
-    catalog,
-    loaded,
-    reload,
-    categoryById: new Map(catalog.categories.map((c) => [c.id, c])),
-    tagById: new Map(catalog.tags.map((t) => [t.id, t])),
-    fileById: new Map(catalog.files.map((f) => [f.id, f])),
-    recordById: new Map(catalog.records.map((r) => [r.id, r])),
-  }), [catalog, loaded, reload]);
+  const value = useMemo<CatalogState>(() => {
+    const categoryById = new Map(catalog.categories.map((category) => [category.id, category]));
+    const recordById = new Map(catalog.records.map((record) => [record.id, record]));
+    return {
+      catalog,
+      loaded,
+      reload,
+      categoryById,
+      tagById: new Map(catalog.tags.map((tag) => [tag.id, tag])),
+      fileById: new Map(catalog.files.map((file) => [file.id, file])),
+      recordById,
+      modeOf: (recordId) => {
+        const record = recordById.get(recordId);
+        return record ? categoryById.get(record.categoryId)?.mode : undefined;
+      },
+    };
+  }, [catalog, loaded, reload]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useCatalog(): CatalogState {
-  const v = useContext(Ctx);
-  if (!v) throw new Error('useCatalog outside provider');
-  return v;
+  const state = useContext(Ctx);
+  if (!state) throw new Error('useCatalog outside provider');
+  return state;
 }

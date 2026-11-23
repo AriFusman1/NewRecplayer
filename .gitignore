@@ -6,3 +6,6 @@ backend/src/main/resources/webroot/
 .DS_Store
 .idea
 *.iml
+
+# your configuration (S3 address and secrets): never commit it
+config/application.yml

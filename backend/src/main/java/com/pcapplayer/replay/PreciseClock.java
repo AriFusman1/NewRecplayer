@@ -1,5 +1,6 @@
 package com.pcapplayer.replay;
 
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -18,26 +19,43 @@ public final class PreciseClock {
     private static final long MAX_PARK_NANOS = 20_000_000;  // re-check Stop at least every 20 ms
 
     /** Current spin margin, shared by all replay threads (they run on the same host). */
-    private static volatile long margin = 1_500_000;
+    private static final AtomicLong MARGIN = new AtomicLong(1_500_000);
 
     private PreciseClock() {
     }
 
     public static void sleepUntil(long deadline, Control control) {
+        sleep(deadline, control, false);
+    }
+
+    /**
+     * Like {@link #sleepUntil} but returns early when a seek is requested.
+     *
+     * @return true if the deadline was reached, false if a seek is pending
+     */
+    static boolean sleepUntilOrSeek(long deadline, Control control) {
+        return sleep(deadline, control, true);
+    }
+
+    private static boolean sleep(long deadline, Control control, boolean seekable) {
         while (true) {
             control.checkAlive();
+            if (seekable && control.seekPending()) return false;
             long now = System.nanoTime();
             long remaining = deadline - now;
-            if (remaining <= 0) return;
-            long m = margin;
-            if (remaining > m) {
-                long park = Math.min(remaining - m, MAX_PARK_NANOS);
+            if (remaining <= 0) return true;
+            long spinMargin = MARGIN.get();
+            if (remaining > spinMargin) {
+                long park = Math.min(remaining - spinMargin, MAX_PARK_NANOS);
                 LockSupport.parkNanos(park);
-                learn(System.nanoTime() - (now + park));
+                if (!(seekable && control.seekPending())) learn(System.nanoTime() - (now + park));
             } else {
-                while (System.nanoTime() < deadline) Thread.onSpinWait();
+                while (System.nanoTime() < deadline) {
+                    if (seekable && control.seekPending()) return false;
+                    Thread.onSpinWait();
+                }
                 control.checkAlive();
-                return;
+                return true;
             }
         }
     }
@@ -45,13 +63,14 @@ public final class PreciseClock {
     /** @param oversleep how much later than requested the park returned */
     private static void learn(long oversleep) {
         if (Thread.currentThread().isInterrupted()) return; // woken early on purpose
-        long m = margin;
         long wanted = oversleep * 2 + MIN_MARGIN;
-        long next = wanted > m ? wanted : m - (m - wanted) / 64; // grow at once, shrink slowly
-        margin = Math.max(MIN_MARGIN, Math.min(MAX_MARGIN, next));
+        MARGIN.updateAndGet(spinMargin -> {
+            long next = wanted > spinMargin ? wanted : spinMargin - (spinMargin - wanted) / 64; // grow at once, shrink slowly
+            return Math.max(MIN_MARGIN, Math.min(MAX_MARGIN, next));
+        });
     }
 
     static long marginNanos() {
-        return margin;
+        return MARGIN.get();
     }
 }

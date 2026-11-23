@@ -4,7 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /** Builds raw packet bytes (IPv4, TCP, UDP and link-layer headers) for tests. */
-public final class Frames {
+public class Frames {
 
     public static final int PROTO_TCP = 6, PROTO_UDP = 17;
     public static final int FIN = 0x01, SYN = 0x02, RST = 0x04, PSH = 0x08, ACK = 0x10;
