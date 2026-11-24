@@ -1,11 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api/client';
 import type { Catalog, Category, FileView, Mode, PcapRecord, Tag } from '../api/types';
 
 interface CatalogState {
   catalog: Catalog;
   loaded: boolean;
-  reload: () => Promise<void>;
+  /** Refetches the catalog; resolves to the fresh catalog, or null if the server did not answer. */
+  reload: () => Promise<Catalog | null>;
   categoryById: Map<string, Category>;
   tagById: Map<string, Tag>;
   fileById: Map<string, FileView>;
@@ -22,13 +23,26 @@ export function CatalogProvider({ children, changeSignal }: { children: ReactNod
   const [catalog, setCatalog] = useState<Catalog>(EMPTY);
   const [loaded, setLoaded] = useState(false);
 
-  const reload = useCallback(async () => {
+  /** Reloads overlap (change signals, explicit reloads); only a response newer than the shown one is applied. */
+  const requested = useRef(0);
+  const applied = useRef(0);
+
+  const reload = useCallback(async (): Promise<Catalog | null> => {
+    const request = ++requested.current;
+
     try {
-      const loaded = await api.catalog();
-      setCatalog({ ...loaded, playlists: loaded.playlists ?? [] });
-      setLoaded(true);
+      const fetched = await api.catalog();
+      const fresh = { ...fetched, playlists: fetched.playlists ?? [] };
+
+      if (request > applied.current) {
+        applied.current = request;
+        setCatalog(fresh);
+        setLoaded(true);
+      }
+      return fresh;
     } catch {
       /* server not ready yet; the next change signal or reconnect retries */
+      return null;
     }
   }, []);
 

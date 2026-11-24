@@ -1,20 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { MODES, type Mode } from '../../api/types';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { usePlaylist } from '../../state/playlist';
 import { Icon } from '../../components/common/Icon';
 import { PlaylistDrawer } from '../../components/playlist/PlaylistDrawer';
+import { DateTimeField } from '../../components/common/DateTimeField';
+import { BulkTagDialog } from '../../components/records/BulkTagDialog';
 import { RecordCard } from '../../components/records/RecordCard';
 import { toggleIn } from '../../util/list';
-import { matchesQuery, tagsForCategory } from '../../util/records';
-import { msToUs, parseMs } from '../../util/time';
+import { matchesQuery } from '../../util/records';
+import { parseBoundUs, readDateTime } from '../../util/time';
 import { Link } from 'react-router-dom';
 
 /** Main page: search + filters + record cards, and the playlist drawer. */
 export function PlayerPage() {
   const { t } = useI18n();
-  const { catalog, categoryById, loaded } = useCatalog();
+  const { catalog, categoryById, recordById, loaded } = useCatalog();
   const { items } = usePlaylist();
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -23,11 +25,21 @@ export function PlayerPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [drawer, setDrawer] = useState(false);
+  /** Selection mode for bulk tagging. */
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkTagging, setBulkTagging] = useState(false);
+  const toggleSelected = useCallback((recordId: string) => setSelectedIds((ids) => toggleIn(ids, recordId)), []);
+  // records deleted meanwhile drop out of the selection
+  const selected = selectedIds.filter((id) => recordById.has(id));
 
-  const fromUs = from ? msToUs(parseMs(from) ?? NaN) : null;
-  const toUs = to ? msToUs(parseMs(to) ?? NaN, true) : null;
+  // NaN = typed but not a valid date (the field turns red and the filter is ignored)
+  const fromUs = from ? parseBoundUs(from, false) ?? NaN : null;
+  const toUs = to ? parseBoundUs(to, true) ?? NaN : null;
+  // "to" before "from" matches nothing: both fields turn red with an explanation
+  const reversed = fromUs !== null && toUs !== null && fromUs > toUs;
 
-  const visibleTags = tagsForCategory(catalog.tags, categoryId);
+  const visibleTags = catalog.tags;
 
   const records = useMemo(() => {
     return catalog.records
@@ -42,6 +54,11 @@ export function PlayerPage() {
 
   const filtered = query || categoryId || mode || tagIds.length || from || to;
   const clear = () => { setQuery(''); setCategoryId(''); setMode(''); setTagIds([]); setFrom(''); setTo(''); };
+  const stopSelecting = () => { setSelecting(false); setSelectedIds([]); };
+  const allVisibleSelected = records.length > 0 && records.every((record) => selected.includes(record.id));
+  const toggleAllVisible = () => setSelectedIds(allVisibleSelected
+    ? selected.filter((id) => !records.some((record) => record.id === id))
+    : [...new Set([...selected, ...records.map((record) => record.id)])]);
 
   return (
     <div>
@@ -50,8 +67,26 @@ export function PlayerPage() {
           <h1>{t('nav.player')}</h1>
           <p className="muted">{t('player.count', { n: records.length })}</p>
         </div>
-        <button className="btn" onClick={() => setDrawer(true)}><Icon name="list" />{t('playlist.open', { n: items.length })}</button>
+        <div className="row">
+          {catalog.records.length > 0 && (
+            <button className={`btn${selecting ? ' active' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+              <Icon name="check" />{t('bulk.select')}</button>
+          )}
+          <button className="btn" onClick={() => setDrawer(true)}><Icon name="list" />{t('playlist.open', { n: items.length })}</button>
+        </div>
       </div>
+
+      {selecting && (
+        <div className="bulk-bar" role="toolbar" aria-label={t('bulk.select')}>
+          <span className="strong">{t('bulk.selected', { n: selected.length })}</span>
+          <button className="btn ghost sm" disabled={records.length === 0} onClick={toggleAllVisible}>
+            {allVisibleSelected ? t('bulk.unselectVisible') : t('bulk.selectVisible', { n: records.length })}</button>
+          <div className="grow" />
+          <button className="btn primary sm" disabled={selected.length === 0} onClick={() => setBulkTagging(true)}>
+            <Icon name="tag" size={14} />{t('bulk.editTags')}</button>
+          <button className="btn ghost sm" onClick={stopSelecting}>{t('bulk.done')}</button>
+        </div>
+      )}
 
       <div className="card flat">
         <div className="filters">
@@ -59,7 +94,7 @@ export function PlayerPage() {
             <Icon name="search" />
             <input className="input" value={query} placeholder={t('player.search')} onChange={(e) => setQuery(e.target.value)} />
           </div>
-          <select className="select" value={categoryId} onChange={(e) => { setCategoryId(e.target.value); setTagIds([]); }}>
+          <select className="select" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">{t('player.allCategories')}</option>
             {catalog.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
@@ -67,10 +102,17 @@ export function PlayerPage() {
             <option value="">{t('player.allModes')}</option>
             {MODES.map((modeOption) => <option key={modeOption} value={modeOption}>{t(`mode.${modeOption}`)}</option>)}
           </select>
-          <input className={`input time${from && Number.isNaN(fromUs) ? ' invalid' : ''}`} value={from} placeholder={t('player.from')} title="DD/MM/YYYY HH:MM:SS" onChange={(e) => setFrom(e.target.value)} />
-          <input className={`input time${to && Number.isNaN(toUs) ? ' invalid' : ''}`} value={to} placeholder={t('player.to')} title="DD/MM/YYYY HH:MM:SS" onChange={(e) => setTo(e.target.value)} />
+          <div className="range-filter" title={t('player.rangeHint')}>
+            <span className="range-label"><Icon name="calendar" size={15} />{t('player.recordedTime')}</span>
+            <DateTimeField value={from} invalid={Number.isNaN(fromUs) || reversed} placeholder={t('player.from')} onChange={setFrom}
+              dayTime="start" maxDay={readDateTime(to)} />
+            <span className="muted" aria-hidden="true">–</span>
+            <DateTimeField value={to} invalid={Number.isNaN(toUs) || reversed} placeholder={t('player.to')} onChange={setTo}
+              dayTime="end" minDay={readDateTime(from)} />
+          </div>
           <button className="btn ghost" disabled={!filtered} onClick={clear}>{t('player.clear')}</button>
         </div>
+        {reversed && <p className="filter-error">{t('player.rangeReversed')}</p>}
         {visibleTags.length > 0 && (
           <div className="tag-filter">
             <span className="label" style={{ alignSelf: 'center' }}>{t('player.tags')}</span>
@@ -95,7 +137,9 @@ export function PlayerPage() {
         <div className="empty" style={{ marginTop: 18 }}>{t('player.noMatch')}</div>
       ) : (
         <div className="records">
-          {records.map((record) => <RecordCard key={record.id} record={record} />)}
+          {records.map((record) => (
+            <RecordCard key={record.id} record={record} onToggleSelect={selecting ? toggleSelected : undefined} selected={selected.includes(record.id)} />
+          ))}
         </div>
       )}
 
@@ -103,6 +147,7 @@ export function PlayerPage() {
         <button className="btn primary playlist-fab" onClick={() => setDrawer(true)}><Icon name="list" />{t('playlist.open', { n: items.length })}</button>
       )}
       {drawer && <PlaylistDrawer onClose={() => setDrawer(false)} />}
+      {bulkTagging && <BulkTagDialog recordIds={selected} onClose={() => setBulkTagging(false)} />}
     </div>
   );
 }

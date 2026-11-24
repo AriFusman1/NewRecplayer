@@ -24,7 +24,7 @@ public final class CatalogRoutes {
     record CategoryBody(String name, EConnectionMode mode) {
     }
 
-    record TagBody(String name, String categoryId) {
+    record MergeBody(String intoId) {
     }
 
     private CatalogRoutes() {
@@ -44,6 +44,8 @@ public final class CatalogRoutes {
                 records.preview(Http.body(context, RecordService.Draft.class))));
         router.post("/api/records").handler(context -> http.blockingCreated(context, () ->
                 records.create(Http.body(context, RecordService.CreateRequest.class))));
+        router.post("/api/records/tags").handler(context -> http.blocking(context, () ->
+                Map.of("updated", records.retag(Http.body(context, RecordService.RetagRequest.class)))));
         router.put("/api/records/:id").handler(context -> http.blocking(context, () ->
                 records.update(id(context), Http.body(context, RecordService.UpdateRequest.class))));
         router.delete("/api/records/:id").handler(context -> http.blockingVoid(context, () -> records.delete(id(context))));
@@ -77,14 +79,15 @@ public final class CatalogRoutes {
                 taxonomy.renameCategory(id(context), Http.body(context, NameBody.class).name())));
         router.get("/api/categories/:id/usage").handler(context -> http.blocking(context, () ->
                 Map.of("records", taxonomy.categoryUsage(id(context)))));
-        router.delete("/api/categories/:id").handler(context -> http.blockingVoid(context, () -> taxonomy.deleteCategory(id(context))));
+        router.delete("/api/categories/:id").handler(context -> http.blockingVoid(context, () ->
+                taxonomy.deleteCategory(id(context), context.queryParams().get("moveTo"))));
 
-        router.post("/api/tags").handler(context -> http.blockingCreated(context, () -> {
-            TagBody body = Http.body(context, TagBody.class);
-            return taxonomy.createTag(body.name(), body.categoryId());
-        }));
+        router.post("/api/tags").handler(context -> http.blockingCreated(context, () ->
+                taxonomy.createTag(Http.body(context, NameBody.class).name())));
         router.put("/api/tags/:id").handler(context -> http.blocking(context, () ->
                 taxonomy.renameTag(id(context), Http.body(context, NameBody.class).name())));
+        router.post("/api/tags/:id/merge").handler(context -> http.blocking(context, () ->
+                taxonomy.mergeTag(id(context), Http.body(context, MergeBody.class).intoId())));
         router.delete("/api/tags/:id").handler(context -> http.blockingVoid(context, () -> taxonomy.deleteTag(id(context))));
     }
 

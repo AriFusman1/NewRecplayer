@@ -1,6 +1,6 @@
 import { memo, useState, type ReactNode } from 'react';
 import { api } from '../../api/client';
-import type { PcapRecord } from '../../api/types';
+import type { PcapRecord, Tag } from '../../api/types';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { useAction, useFeedback } from '../../state/feedback';
@@ -13,10 +13,17 @@ import { Icon } from '../common/Icon';
 import { Confirm } from '../common/Modal';
 import { PlayDialog } from '../playback/PlayDialog';
 
+interface Props {
+  record: PcapRecord;
+  /** Given in selection mode (bulk tagging): the card shows a checkbox and a click toggles it. */
+  onToggleSelect?: (recordId: string) => void;
+  selected?: boolean;
+}
+
 /** One record with all its info and actions. Memoized: the player page re-renders on every keystroke. */
-export const RecordCard = memo(function RecordCard({ record }: { record: PcapRecord }) {
+export const RecordCard = memo(function RecordCard({ record, onToggleSelect, selected = false }: Props) {
   const { t } = useI18n();
-  const { categoryById, tagById, fileById } = useCatalog();
+  const { catalog, categoryById, tagById, fileById } = useCatalog();
   const { add } = usePlaylist();
   const { toast } = useFeedback();
   const { run } = useAction();
@@ -24,7 +31,17 @@ export const RecordCard = memo(function RecordCard({ record }: { record: PcapRec
   const category = categoryById.get(record.categoryId);
   const file = fileById.get(record.fileId);
   const stats = record.stats;
+  const tags = record.tagIds.map((id) => tagById.get(id)).filter((tag): tag is Tag => tag !== undefined);
   if (!category) return null;
+
+  /** The delete prompt says whether the capture file goes too: it stays while other records use it. */
+  const deleteBody = () => {
+    const others = catalog.records.filter((other) => other.fileId === record.fileId && other.id !== record.id).length;
+    const fileName = file?.originalName ?? '';
+    return [t('del.body', { name: record.name }),
+      others > 0 ? t('del.fileKept', { file: fileName, n: others }) : t('del.fileDeleted', { file: fileName }),
+      t('del.irreversible')].join('\n\n');
+  };
 
   const remove = async () => {
     await run(() => api.deleteRecord(record.id));
@@ -32,19 +49,22 @@ export const RecordCard = memo(function RecordCard({ record }: { record: PcapRec
   };
 
   return (
-    <article className="card record-card">
-      <div className="row between" style={{ alignItems: 'flex-start' }}>
-        <div className="col grow" style={{ gap: 6 }}>
+    <article className={`card record-card${onToggleSelect ? ' selecting' : ''}${selected ? ' selected' : ''}`}
+      onClick={onToggleSelect ? (e) => {
+        // a dialog renders inside the card; its clicks must not toggle the selection
+        if (!(e.target as HTMLElement).closest('.modal-backdrop')) onToggleSelect(record.id);
+      } : undefined}>
+      <header className="rc-head">
+        {onToggleSelect && (
+          <input type="checkbox" className="rc-check" checked={selected} aria-label={record.name}
+            onClick={(e) => e.stopPropagation()} onChange={() => onToggleSelect(record.id)} />
+        )}
+        <div className="rc-title">
           <div className="name">{record.name}</div>
-          <div className="row wrap">
-            <span className="chip"><Icon name="folder" size={12} />{category.name}</span>
-            <ModeBadge mode={category.mode} />
-            {record.tagIds.map((id) => tagById.get(id)).filter(Boolean).map((tag) => (
-              <span key={tag!.id} className={`chip tag${tag!.categoryId ? '' : ' global'}`}><bdi>#{tag!.name}</bdi></span>
-            ))}
-          </div>
+          <div className="rc-category"><Icon name="folder" size={13} /><bdi>{category.name}</bdi></div>
         </div>
-      </div>
+        <ModeBadge mode={category.mode} />
+      </header>
       {record.description && <div className="desc">{record.description}</div>}
       <MiniBars histogram={stats.histogram} />
       <div className="meta">
@@ -55,9 +75,15 @@ export const RecordCard = memo(function RecordCard({ record }: { record: PcapRec
         <Meta label={t('card.ip')} value={record.ip ? <span className="mono ltr">{record.ip}</span> : <span className="muted">{t('card.allIps')}</span>} />
         <Meta label={t('card.file')} value={file ? <span className="ellipsis" title={file.originalName}>{file.originalName} · {formatBytes(file.size)}</span> : '—'} wide />
       </div>
+      {tags.length > 0 && (
+        <div className="rc-tags" aria-label={t('upload.tags')}>
+          <Icon name="tag" size={13} />
+          {tags.map((tag) => <span key={tag.id} className="tag-pill"><bdi>{tag.name}</bdi></span>)}
+        </div>
+      )}
       <div className="small muted">{t('card.uploaded', { name: record.createdBy || '—', time: formatMs(record.createdAtMs) })}</div>
       <Warnings items={stats.warnings} />
-      <div className="actions">
+      {!onToggleSelect && <div className="actions">
         <button className="btn primary sm" onClick={() => setDialog('play')}><Icon name="play" size={12} />{t('common.play')}</button>
         <button className="btn sm" onClick={() => { add(record.id, category.mode); toast('info', t('playlist.added', { name: record.name })); }}>
           <Icon name="plus" size={14} />{t('card.addToPlaylist')}</button>
@@ -65,12 +91,12 @@ export const RecordCard = memo(function RecordCard({ record }: { record: PcapRec
         <button className="btn ghost icon sm" title={t('common.edit')} onClick={() => setDialog('edit')}><Icon name="edit" /></button>
         <a className="btn ghost icon sm" title={t('common.download')} href={api.downloadUrl(record.id)}><Icon name="download" /></a>
         <button className="btn ghost icon sm" title={t('common.delete')} onClick={() => setDialog('delete')}><Icon name="trash" /></button>
-      </div>
+      </div>}
 
       {dialog === 'play' && <PlayDialog record={record} mode={category.mode} onClose={() => setDialog(null)} />}
       {dialog === 'edit' && <EditRecordDialog record={record} onClose={() => setDialog(null)} />}
       {dialog === 'delete' && (
-        <Confirm title={t('del.title')} body={t('del.body', { name: record.name })} danger
+        <Confirm title={t('del.title')} body={deleteBody()} danger
           confirmLabel={t('common.delete')} cancelLabel={t('common.cancel')} onConfirm={remove} onCancel={() => setDialog(null)} />
       )}
     </article>

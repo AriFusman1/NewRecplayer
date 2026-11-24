@@ -72,6 +72,15 @@ public class CatalogSupport {
 
     // ------------------------------------------------------------------ validation
 
+    /** Records keep their connection mode: a record can only move to a category with the same mode. */
+    static void requireSameMode(Category current, Category wanted) {
+        if (current.mode() != wanted.mode()) {
+            throw ApiException.unprocessable("CATEGORY_MODE_MISMATCH",
+                    Map.of("name", wanted.name(), "mode", wanted.mode().name(), "expected", current.mode().name()),
+                    "The category's connection mode differs from the record's");
+        }
+    }
+
     static String requireName(String name) {
         String trimmed = name == null ? "" : name.trim();
         if (trimmed.isEmpty()) throw ApiException.unprocessable("NAME_REQUIRED", "Name is required");

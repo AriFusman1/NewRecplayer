@@ -15,6 +15,7 @@ import { FeedbackProvider } from './state/feedback';
 import { LiveProvider } from './state/live';
 import { NicknameProvider, useNickname } from './state/nickname';
 import { PlaylistProvider } from './state/playlist';
+import { UploadProvider } from './state/upload';
 
 export function App() {
   // the live socket tells the catalog when to refetch
@@ -27,9 +28,11 @@ export function App() {
           <LiveProvider onCatalogChange={bump}>
             <CatalogProvider changeSignal={catalogSignal}>
               <PlaylistProvider>
-                <BrowserRouter>
-                  <Shell />
-                </BrowserRouter>
+                <UploadProvider>
+                  <BrowserRouter>
+                    <Shell />
+                  </BrowserRouter>
+                </UploadProvider>
               </PlaylistProvider>
             </CatalogProvider>
           </LiveProvider>

@@ -1,5 +1,5 @@
 package com.pcapplayer.recordManagement.model;
 
-/** @param categoryId null for a global tag */
-public record Tag(String id, String name, String categoryId) {
+/** A tag. Tags are global: any tag can be put on any record. */
+public record Tag(String id, String name) {
 }

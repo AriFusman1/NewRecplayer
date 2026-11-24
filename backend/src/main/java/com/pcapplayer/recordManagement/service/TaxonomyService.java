@@ -1,21 +1,20 @@
 package com.pcapplayer.recordManagement.service;
 
-import com.pcapplayer.common.Strings;
 import com.pcapplayer.errorHandling.ApiException;
 import com.pcapplayer.pcapProcessing.script.EConnectionMode;
 import com.pcapplayer.recordManagement.model.Category;
 import com.pcapplayer.recordManagement.model.Tag;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 
 import static com.pcapplayer.recordManagement.service.CatalogSupport.nameExists;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.nameTaken;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.requireName;
+import static com.pcapplayer.recordManagement.service.CatalogSupport.requireSameMode;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.writeToStorage;
 
-/** Categories (each with a fixed connection mode) and tags (global or scoped to one category). */
+/** Categories (each with a fixed connection mode) and global tags. */
 public class TaxonomyService {
 
     private final CatalogSupport catalog;
@@ -58,17 +57,22 @@ public class TaxonomyService {
         return records.countInCategory(id);
     }
 
-    /** Deletes the category, all its records, its tags and any pcap files no longer used. */
-    public void deleteCategory(String id) {
+    /**
+     * Deletes the category. Its records move to {@code moveToId} (a category with the same mode), or,
+     * when that is null, are deleted together with any pcap files no longer used. Tags are global and stay.
+     */
+    public void deleteCategory(String id, String moveToId) {
         catalog.mutate(() -> {
-            catalog.requireCategory(id);
-            records.deleteAllInCategory(id);
-            List<Tag> remaining = catalog.repo.tags().stream().filter(tag -> !id.equals(tag.categoryId())).toList();
+            Category category = catalog.requireCategory(id);
 
-            writeToStorage(() -> {
-                catalog.repo.saveTags(remaining);
-                catalog.repo.deleteCategory(id);
-            });
+            if (moveToId == null) {
+                records.deleteAllInCategory(id);
+            } else {
+                if (moveToId.equals(id)) throw ApiException.unprocessable("MOVE_TO_SAME", "Choose another category");
+                requireSameMode(category, catalog.requireCategory(moveToId));
+                records.moveAllInCategory(id, moveToId);
+            }
+            writeToStorage(() -> catalog.repo.deleteCategory(id));
         });
     }
 
@@ -80,14 +84,12 @@ public class TaxonomyService {
 
     // ------------------------------------------------------------------ tags
 
-    public Tag createTag(String name, String categoryId) {
+    public Tag createTag(String name) {
         String trimmedName = requireName(name);
-        String scopeCategoryId = Strings.blankToNull(categoryId);
 
         return catalog.mutate(() -> {
-            if (scopeCategoryId != null) catalog.requireCategory(scopeCategoryId);
-            checkTagName(trimmedName, scopeCategoryId, null);
-            Tag tag = new Tag(UUID.randomUUID().toString(), trimmedName, scopeCategoryId);
+            checkTagName(trimmedName, null);
+            Tag tag = new Tag(UUID.randomUUID().toString(), trimmedName);
             List<Tag> all = catalog.repo.tags();
             all.add(tag);
             writeToStorage(() -> catalog.repo.saveTags(all));
@@ -101,9 +103,8 @@ public class TaxonomyService {
         return catalog.mutate(() -> {
             List<Tag> all = catalog.repo.tags();
             int i = indexOfTag(all, id);
-            Tag old = all.get(i);
-            checkTagName(trimmedName, old.categoryId(), id);
-            Tag tag = new Tag(id, trimmedName, old.categoryId());
+            checkTagName(trimmedName, id);
+            Tag tag = new Tag(id, trimmedName);
             all.set(i, tag);
             writeToStorage(() -> catalog.repo.saveTags(all));
             return tag;
@@ -120,13 +121,23 @@ public class TaxonomyService {
         });
     }
 
-    /** Tag names are unique within their scope: global tags among global ones, category tags within the category. */
-    private void checkTagName(String name, String categoryId, String exceptId) {
-        List<Tag> sameScope = catalog.repo.tags().stream()
-                .filter(tag -> Objects.equals(tag.categoryId(), categoryId))
-                .toList();
+    /** Replaces the tag with {@code intoId} on every record (once each), then deletes it. */
+    public Tag mergeTag(String id, String intoId) {
+        return catalog.mutate(() -> {
+            List<Tag> all = catalog.repo.tags();
+            int i = indexOfTag(all, id);
+            Tag into = all.get(indexOfTag(all, intoId));
+            if (id.equals(intoId)) throw ApiException.unprocessable("MERGE_INTO_SAME", "Choose another tag");
+            records.replaceTagEverywhere(id, intoId);
+            all.remove(i);
+            writeToStorage(() -> catalog.repo.saveTags(all));
+            return into;
+        });
+    }
 
-        if (nameTaken(sameScope, Tag::name, Tag::id, name, exceptId)) {
+    /** Tag names are unique among all tags. */
+    private void checkTagName(String name, String exceptId) {
+        if (nameTaken(catalog.repo.tags(), Tag::name, Tag::id, name, exceptId)) {
             throw nameExists("TAG_EXISTS", name, "Tag exists");
         }
     }

@@ -16,9 +16,11 @@ import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
 import io.vertx.ext.web.Router;
+import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.StaticHandler;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 
@@ -52,9 +54,13 @@ public class ApiServer {
         router.route("/api/*").handler(context -> Http.json(context, Http.NOT_FOUND, Map.of("code", "NOT_FOUND", "message", "No such endpoint")));
 
         // Built frontend from the classpath (webroot/); unknown paths fall back to index.html (client-side routing).
-        router.route().handler(StaticHandler.create("webroot").setCachingEnabled(true).setIndexPage("index.html"));
-        router.get().handler(context -> context.response().putHeader("cache-control", "no-cache").sendFile("webroot/index.html")
-                .onFailure(e -> context.response().setStatusCode(404).end("Frontend not built")));
+        // index.html is never cached, so a new build is picked up at once; the hashed assets it points to are.
+        // The files are UTF-8; without this the charset is the JVM default (windows-1252 on Windows).
+        router.get("/").handler(ApiServer::sendIndex);
+        router.get("/index.html").handler(ApiServer::sendIndex);
+        router.route().handler(StaticHandler.create("webroot").setCachingEnabled(true)
+                .setDefaultContentEncoding(StandardCharsets.UTF_8.name()));
+        router.get().handler(ApiServer::sendIndex);
 
         return vertx.createHttpServer(new HttpServerOptions().setHost(host).setPort(port)
                         .setCompressionSupported(true).setMaxWebSocketMessageSize(1 << 20))
@@ -64,5 +70,11 @@ public class ApiServer {
                 })
                 .requestHandler(router)
                 .listen();
+    }
+
+    private static void sendIndex(RoutingContext context) {
+        context.response().putHeader("cache-control", "no-cache")
+                .putHeader("content-type", "text/html;charset=UTF-8").sendFile("webroot/index.html")
+                .onFailure(e -> context.response().setStatusCode(404).end("Frontend not built"));
     }
 }

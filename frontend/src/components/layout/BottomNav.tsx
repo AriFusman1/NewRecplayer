@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useI18n, type MessageKey } from '../../i18n';
+import { useUpload } from '../../state/upload';
 import { Icon } from '../common/Icon';
 
 const ITEMS: { to: string; icon: string; label: MessageKey }[] = [
@@ -11,11 +12,15 @@ const ITEMS: { to: string; icon: string; label: MessageKey }[] = [
 
 export function BottomNav() {
   const { t } = useI18n();
+  const { busy } = useUpload();
   return (
     <nav className="bottom-nav">
       {ITEMS.map((i) => (
         <NavLink key={i.to} to={i.to} end={i.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
-          <Icon name={i.icon} size={19} />
+          <span className="nav-icon">
+            <Icon name={i.icon} size={19} />
+            {i.to === '/upload' && busy && <span className="nav-dot" title={t('upload.inProgress')} />}
+          </span>
           <span>{t(i.label)}</span>
         </NavLink>
       ))}
