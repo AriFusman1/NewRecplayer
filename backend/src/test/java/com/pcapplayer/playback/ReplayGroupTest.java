@@ -1,5 +1,6 @@
 package com.pcapplayer.playback;
 
+import com.pcapplayer.playback.model.ItemRequest;
 import com.pcapplayer.playback.model.SessionView;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -78,7 +79,7 @@ class ReplayGroupTest {
         assertEquals(1, engine.activeReplays(), "the refused group's slots are given back");
 
         // the first member's target was released again
-        assertEquals(1, engine.startGroup(List.of(udp("udp-a", free)), "dana").size());
+        assertEquals(2, engine.startGroup(List.of(udp("udp-a", free), udp("udp-c", receiver())), "dana").size());
     }
 
     @Test
@@ -104,8 +105,20 @@ class ReplayGroupTest {
     }
 
     @Test
-    void anEmptyGroupIsRefused() {
-        assertEquals("EMPTY_PLAYLIST", assertThrows(ReplayFailure.class, () -> engine.startGroup(List.of(), "dana")).code());
+    void playTogetherNeedsAtLeastTwoRecordings() throws Exception {
+        DatagramSocket socket = receiver();
+        for (List<ItemRequest> tooFew : List.of(List.<ItemRequest>of(), List.of(udp("udp-a", socket)))) {
+            ReplayFailure failure = assertThrows(ReplayFailure.class, () -> engine.startGroup(tooFew, "dana"));
+            assertEquals("GROUP_TOO_SMALL", failure.code());
+            assertEquals(400, failure.status(), "a request that can never be valid is a 400");
+            assertEquals(tooFew.size(), failure.params().get("requested"));
+        }
+        assertTrue(engine.views().isEmpty());
+        assertEquals(0, engine.activeReplays(), "a refused request takes no slot");
+
+        // the normal Play still runs a single recording
+        engine.start(List.of(udp("udp-a", socket)), false, "dana");
+        assertEquals(1, engine.views().size());
     }
 
     @Test

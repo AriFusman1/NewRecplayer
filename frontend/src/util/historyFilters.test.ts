@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HistoryEntry } from '../api/types';
 import {
-  activeColumns, applyFilters, clearColumn, emptyFilters, filterOptions, filtersFromParams, filtersToParams,
-  NO_PLAYLIST, playlistKey, UNNAMED_PLAYLIST, type HistoryFilters,
+  activeColumns, applyFilters, clearColumn, emptyFilters, filtersFromParams, filtersToParams, formatMessages,
+  parseMessages, playlistText, suggestions, type HistoryFilters,
 } from './historyFilters.js';
 
 const MINUTE = 60_000;
 const T0 = Date.UTC(2026, 10, 24, 10, 0, 0);
+const LABELS = { none: 'No playlist', unnamed: 'Unnamed playlist' };
 
 function entry(id: string, overrides: Partial<HistoryEntry> = {}): HistoryEntry {
   return {
@@ -21,39 +22,36 @@ function entry(id: string, overrides: Partial<HistoryEntry> = {}): HistoryEntry 
 
 const runs: HistoryEntry[] = [
   entry('a'),
-  entry('b', { recordName: 'Tracker session', categoryName: 'Tracker', mode: 'TCP_SERVER', target: '10.0.0.9:6000', startedBy: 'omer',
+  entry('b', { recordName: 'Tracker session', categoryName: 'Tracker', mode: 'TCP_SERVER', target: '10.0.0.9:6000', startedBy: 'yahali',
     startedAtMs: T0 + 10 * MINUTE, endedAtMs: T0 + 11 * MINUTE, messagesSent: 7, result: 'FAILED',
     playlist: { sessionId: 's1', index: 1, total: 2, name: 'Morning run' } }),
   entry('c', { recordName: 'Feed handshake', categoryName: 'Feed client', mode: 'TCP_CLIENT', target: 'listen :7000',
-    startedAtMs: T0 + 20 * MINUTE, endedAtMs: T0 + 25 * MINUTE, messagesSent: 2, result: 'STOPPED', stoppedBy: 'dana',
-    playlist: { sessionId: 's2', index: 1, total: 3 } }),
+    startedBy: 'yaniv', startedAtMs: T0 + 20 * MINUTE, endedAtMs: T0 + 25 * MINUTE, messagesSent: 2, result: 'STOPPED',
+    stoppedBy: 'dana', playlist: { sessionId: 's2', index: 1, total: 3 } }),
 ];
 
-const ids = (filters: Partial<HistoryFilters>) => applyFilters(runs, { ...emptyFilters(), ...filters }).map((run) => run.id);
+const ids = (filters: Partial<HistoryFilters>) => applyFilters(runs, { ...emptyFilters(), ...filters }, LABELS).map((run) => run.id);
 
 test('no filter shows every run in the original order', () => {
   assert.deepEqual(ids({}), ['a', 'b', 'c']);
 });
 
-test('Record: contains, case-insensitive', () => {
+test('text filters: contains, case-insensitive, on every text column', () => {
   assert.deepEqual(ids({ record: 'RADAR' }), ['a']);
-  assert.deepEqual(ids({ record: '  sess ' }), ['b']);
-});
-
-test('Category: multi-select, values combine with OR', () => {
-  assert.deepEqual(ids({ categories: ['Tracker'] }), ['b']);
-  assert.deepEqual(ids({ categories: ['Tracker', 'Feed client'] }), ['b', 'c']);
-});
-
-test('Target: contains on host and port, case-insensitive', () => {
-  assert.deepEqual(ids({ target: '10.0.0.9' }), ['b']);
+  assert.deepEqual(ids({ category: 'track' }), ['b']);
+  assert.deepEqual(ids({ category: 'radar u' }), ['a']);
   assert.deepEqual(ids({ target: ':5000' }), ['a']);
   assert.deepEqual(ids({ target: 'LISTEN' }), ['c']);
+  assert.deepEqual(ids({ user: 'yah' }), ['b']);
+  assert.deepEqual(ids({ user: 'ya' }), ['b', 'c']);
 });
 
-test('Started by: multi-select', () => {
-  assert.deepEqual(ids({ users: ['omer'] }), ['b']);
-  assert.deepEqual(ids({ users: ['dana', 'omer'] }), ['a', 'b', 'c']);
+test('Playlist matches the column as shown: name, "Unnamed playlist" or "No playlist"', () => {
+  assert.equal(playlistText(runs[0], LABELS), 'No playlist');
+  assert.equal(playlistText(runs[2], LABELS), 'Unnamed playlist');
+  assert.deepEqual(ids({ playlist: 'morning' }), ['b']);
+  assert.deepEqual(ids({ playlist: 'no pl' }), ['a']);
+  assert.deepEqual(ids({ playlist: 'playlist' }), ['a', 'c']);
 });
 
 test('Start and End: inclusive ranges, either end may be open', () => {
@@ -61,60 +59,67 @@ test('Start and End: inclusive ranges, either end may be open', () => {
   assert.deepEqual(ids({ startTo: T0 + 10 * MINUTE }), ['a', 'b']);
   assert.deepEqual(ids({ startFrom: T0 + 5 * MINUTE, startTo: T0 + 15 * MINUTE }), ['b']);
   assert.deepEqual(ids({ endFrom: T0 + 25 * MINUTE }), ['c']);
-  assert.deepEqual(ids({ endFrom: T0 + 30 * MINUTE }), []);
 });
 
-test('Messages: min / max on messages sent', () => {
-  assert.deepEqual(ids({ messagesMin: 7 }), ['a', 'b']);
-  assert.deepEqual(ids({ messagesMax: 7 }), ['b', 'c']);
-  assert.deepEqual(ids({ messagesMin: 3, messagesMax: 50 }), ['b']);
-  assert.deepEqual(ids({ messagesMin: 50, messagesMax: 3 }), [], 'min > max matches nothing');
-});
-
-test('Result: multi-select of the result values', () => {
+test('Result: the same three options, any of them matches', () => {
   assert.deepEqual(ids({ results: ['FAILED'] }), ['b']);
   assert.deepEqual(ids({ results: ['FAILED', 'STOPPED'] }), ['b', 'c']);
 });
 
-test('Playlist: by name, unnamed draft runs, or no playlist', () => {
-  assert.equal(playlistKey(runs[0]), NO_PLAYLIST);
-  assert.equal(playlistKey(runs[2]), UNNAMED_PLAYLIST);
-  assert.deepEqual(ids({ playlists: ['name:Morning run'] }), ['b']);
-  assert.deepEqual(ids({ playlists: [NO_PLAYLIST] }), ['a']);
-  assert.deepEqual(ids({ playlists: [NO_PLAYLIST, UNNAMED_PLAYLIST] }), ['a', 'c']);
-});
-
 test('different columns combine with AND', () => {
-  assert.deepEqual(ids({ users: ['dana'], results: ['STOPPED', 'COMPLETED'], target: 'listen' }), ['c']);
-  assert.deepEqual(ids({ users: ['omer'], record: 'radar' }), []);
+  assert.deepEqual(ids({ user: 'ya', results: ['STOPPED'], target: 'listen' }), ['c']);
+  assert.deepEqual(ids({ user: 'yahali', record: 'radar' }), []);
 });
 
-test('options list the values that occur, sorted, with the playlist extras', () => {
-  const options = filterOptions(runs);
-  assert.deepEqual(options.categories, ['Feed client', 'Radar UDP', 'Tracker']);
-  assert.deepEqual(options.users, ['dana', 'omer']);
-  assert.deepEqual(options.playlists, ['name:Morning run', UNNAMED_PLAYLIST, NO_PLAYLIST]);
+test('suggestions: distinct matching values, "starts with" first, at most 10', () => {
+  assert.deepEqual(suggestions(runs, 'user', 'yah', LABELS), ['yahali']);
+  assert.deepEqual(suggestions(runs, 'user', 'a', LABELS), ['dana', 'yahali', 'yaniv']);
+  assert.deepEqual(suggestions(runs, 'category', 'cli', LABELS), ['Feed client']);
+  assert.deepEqual(suggestions(runs, 'playlist', '', LABELS), ['Morning run', 'No playlist', 'Unnamed playlist']);
+  const many = Array.from({ length: 15 }, (_, index) => entry(String(index), { startedBy: `user${String(index).padStart(2, '0')}` }));
+  assert.equal(suggestions(many, 'user', 'user', LABELS).length, 10);
+});
+
+test('Messages syntax: exact, bounds and ranges', () => {
+  assert.deepEqual(parseMessages(''), { min: null, max: null });
+  assert.deepEqual(parseMessages('100'), { min: 100, max: 100 });
+  assert.deepEqual(parseMessages('>100'), { min: 101, max: null });
+  assert.deepEqual(parseMessages('>=100'), { min: 100, max: null });
+  assert.deepEqual(parseMessages('<50'), { min: null, max: 49 });
+  assert.deepEqual(parseMessages('<= 50'), { min: null, max: 50 });
+  assert.deepEqual(parseMessages(' 100 - 500 '), { min: 100, max: 500 });
+});
+
+test('Messages syntax: invalid input is rejected', () => {
+  for (const bad of ['abc', '500-100', '<0', '1.5', '-5', '>', '10-', '>>3']) {
+    assert.equal(parseMessages(bad), null, bad);
+  }
+});
+
+test('Messages syntax: a range is written back the way it is typed', () => {
+  for (const text of ['100', '>100', '<50', '100-500', '']) {
+    assert.equal(formatMessages(parseMessages(text)!), text);
+  }
+  const below50 = parseMessages('<50')!;
+  assert.deepEqual(ids({ messagesMin: below50.min, messagesMax: below50.max }), ['b', 'c']);
+  const range = parseMessages('5-50')!;
+  assert.deepEqual(ids({ messagesMin: range.min, messagesMax: range.max }), ['b']);
 });
 
 test('active columns and clearing one of them', () => {
-  const filters: HistoryFilters = { ...emptyFilters(), record: 'x', startTo: T0, results: ['FAILED'] };
-  assert.deepEqual(activeColumns(filters), ['record', 'start', 'result']);
-  assert.deepEqual(activeColumns(clearColumn(filters, 'start')), ['record', 'result']);
+  const filters: HistoryFilters = { ...emptyFilters(), record: 'x', startTo: T0, results: ['FAILED'], user: 'ya' };
+  assert.deepEqual(activeColumns(filters), ['record', 'startedBy', 'start', 'result']);
+  assert.deepEqual(activeColumns(clearColumn(filters, 'start')), ['record', 'startedBy', 'result']);
   assert.deepEqual(activeColumns(emptyFilters()), []);
 });
 
 test('URL: filters survive a round trip through the query string', () => {
   const filters: HistoryFilters = {
-    ...emptyFilters(), record: 'radar', categories: ['Tracker', 'Feed client'], target: ':5000', users: ['omer'],
+    ...emptyFilters(), record: 'radar', category: 'Tracker', target: ':5000', user: 'yah', playlist: 'no playlist',
     startFrom: T0, endTo: T0 + MINUTE, messagesMin: 0, messagesMax: 50, results: ['FAILED', 'STOPPED'],
-    playlists: [NO_PLAYLIST, 'name:Morning run'],
   };
-  const query = filtersToParams(filters).toString();
-  assert.deepEqual(filtersFromParams(new URLSearchParams(query)), filters);
-});
-
-test('URL: no filters means an empty query string', () => {
-  assert.equal(filtersToParams(emptyFilters()).toString(), '');
+  assert.deepEqual(filtersFromParams(new URLSearchParams(filtersToParams(filters).toString())), filters);
+  assert.equal(filtersToParams(emptyFilters()).toString(), '', 'no filters, clean URL');
 });
 
 test('URL: malformed or unknown values are ignored', () => {

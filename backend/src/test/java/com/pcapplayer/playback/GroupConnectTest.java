@@ -141,13 +141,14 @@ class GroupConnectTest {
     @Test
     void afterTheStartADisconnectFailsOnlyThatReplay() throws Exception {
         int port = freePort();
-        engine.startGroup(List.of(listen("listen-1", port)), "dana");
+        engine.startGroup(List.of(listen("listen-1", port), udp("udp-a", udpReceiver(cleanup))), "dana");
         Socket client = connect(port);
         InputStream in = client.getInputStream();
         assertEquals(1, in.read()); // playing
         client.close();
         sleep(50);
-        waitUntil("ended", () -> listener.results().size() == 1);
-        assertEquals("CLIENT_DISCONNECTED", listener.finished().get(0).failureCode());
+        waitUntil("both ended", () -> listener.results().size() == 2);
+        assertTrue(listener.finished().stream().anyMatch(entry -> "CLIENT_DISCONNECTED".equals(entry.failureCode())));
+        assertTrue(listener.results().contains("COMPLETED"), "the other member is not affected after the start");
     }
 }

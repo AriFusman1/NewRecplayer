@@ -182,8 +182,9 @@ through to the backend on port 8080.
 3. **Player**: find records by search, category, mode, tags or time. Then either:
    - **Play** a single record, giving its target IP:port (or the port to listen on).
    - **Add to playlist**, or open the playlist and use **Add records…**.
-   - **Play together**: tick the checkbox on several records, click **Play together**, and give
-     each one its target. They all start at the same moment; if any target can't be used, none of
+   - **Play together**: tick the checkbox on at least 2 records, click **Play together**, and give
+     each one its target (one record is played with **Play**; the server refuses a group of fewer
+     than 2 with a 400). After starting, the app switches to the **Now playing** tab. They all start at the same moment; if any target can't be used, none of
      them start. If some of them are **TCP clients**, nothing plays until every one of those
      services has connected ("Waiting for connection: 1/3 TCP clients connected"); then all of them
      start together. A client that disconnects before the start is waited for again. Stop, a failed
@@ -191,12 +192,15 @@ through to the backend on port 8080.
    - **Limit**: at most `replay.max-active-replays` (default 10) replays run at once, for all users
      together; a replay waiting for a connection counts. Now Playing shows "7/10 in use", and a
      start that does not fit is refused as a whole ("There are 3 free slots and you tried to start 5").
-4. **Now Playing** (the bar at the bottom): live progress for every running replay. Click or drag
+4. **Now playing** (a tab of its own; the thin bar at the bottom shows usage and opens it): live
+   progress for every running replay. Leaving the tab does not stop anything. Click or drag
    on the graph to jump. Stop a replay, or edit the upcoming items of a playlist. Records played
    together share one card: an **All** tab with everyone's progress, a tab per record with its
    full live view, and **Stop all**.
-5. **History**: the last runs and how they ended. Filter by any column (text, multi-select, time and
-   number ranges); active filters show as chips and live in the URL, so a filtered view can be shared.
+5. **History**: the last runs and how they ended, with a filter under each column header: text with
+   suggestions (Record, Category, Target, Started by, Playlist), a calendar for Start and End,
+   `100` / `>100` / `<50` / `100-500` for Messages, and the Result options. Filters live in the URL,
+   so a filtered view can be shared.
 
 ---
 
@@ -515,7 +519,7 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
 | `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist; optional `playlistName` is recorded in History) |
-| `POST /api/sessions/group` | play records together (one replay each, common start, all or nothing; waits for TCP clients) |
+| `POST /api/sessions/group` | play 2 or more records together (one replay each, common start, all or nothing; waits for TCP clients); fewer than 2 → 400 `GROUP_TOO_SMALL` |
 | `POST /api/sessions/{id}/stop` | stop |
 | `POST /api/sessions/{id}/seek` | jump the current item to `positionUs` |
 | `PUT /api/sessions/{id}/upcoming` | replace a running playlist's upcoming items |
@@ -536,7 +540,8 @@ cd frontend && npm test                  # frontend unit tests (Node's built-in 
 ```
 
 Frontend unit tests are `src/**/*.test.ts`; `npm test` compiles them with `tsconfig.test.json` and runs
-them with `node --test`. They cover the History filters (`src/util/historyFilters.ts`).
+them with `node --test`. They cover the History filters (`src/util/historyFilters.ts`) and the
+calendar arithmetic (`src/util/dateRange.ts`).
 
 Tests that read real capture files need libpcap; they are skipped when it is missing.
 

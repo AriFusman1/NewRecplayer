@@ -8,7 +8,6 @@ import { targetValid, toItemRequest } from '../../util/target';
 import { rememberTargets, suggestTarget } from '../../util/targetMemory';
 import { Icon } from '../common/Icon';
 import { Modal } from '../common/Modal';
-import { openNowPlaying } from './NowPlaying';
 import { TargetFields } from './TargetFields';
 
 /** Asks for the target, then starts a single replay on the server. */
@@ -28,7 +27,6 @@ export function PlayDialog({ record, mode, onClose }: { record: PcapRecord; mode
     if (started) {
       rememberTargets([item]);
       onClose();
-      openNowPlaying();
     }
   };
 

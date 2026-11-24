@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { usePlaylist } from '../../state/playlist';
 import { useLive } from '../../state/live';
+import { MIN_PLAY_TOGETHER } from '../../util/target';
 import { Icon } from '../../components/common/Icon';
 import { PlaylistDrawer } from '../../components/playlist/PlaylistDrawer';
 import { PlayTogetherDialog } from '../../components/playback/PlayTogetherDialog';
@@ -38,6 +39,8 @@ export function PlayerPage() {
   const selected = selectedIds.flatMap((id) => recordById.get(id) ?? []);
   const selectionFull = selected.length >= selectLimit;
   const notEnoughRoom = usage.max > 0 && selected.length > freeSlots;
+  /** One recording is played with Play; Play together needs at least two (the server checks too). */
+  const tooFew = selected.length < MIN_PLAY_TOGETHER;
   const toggleSelected = useCallback((recordId: string) => setSelectedIds((ids) => {
     if (ids.includes(recordId)) return ids.filter((id) => id !== recordId);
     return ids.length >= selectLimit ? ids : [...ids, recordId];
@@ -125,13 +128,18 @@ export function PlayerPage() {
       {selected.length > 0 && (
         <div className="select-bar">
           <span className="badge neutral">{t('select.count', { n: selected.length })}</span>
-          {notEnoughRoom
-            ? <span className="small" style={{ color: 'var(--warning)' }}>{t('select.noRoom', { free: freeSlots, n: selected.length })}</span>
-            : selectionFull && <span className="small muted">{t('select.limit', { max: usage.max })}</span>}
+          {tooFew
+            ? <span className="small muted">{t('select.tooFew')}</span>
+            : notEnoughRoom
+              ? <span className="small" style={{ color: 'var(--warning)' }}>{t('select.noRoom', { free: freeSlots, n: selected.length })}</span>
+              : selectionFull && <span className="small muted">{t('select.limit', { max: usage.max })}</span>}
           <button className="btn ghost sm" onClick={clearSelection}>{t('select.clear')}</button>
-          <button className="btn primary" disabled={notEnoughRoom} onClick={() => setPlayTogether(true)}>
-            <Icon name="play" size={12} />{t('select.playTogether', { n: selected.length })}
-          </button>
+          {/* the tooltip sits on a wrapper: a disabled button gets no mouse events, so it would never show */}
+          <span title={tooFew ? t('select.tooFew') : undefined}>
+            <button className="btn primary" disabled={tooFew || notEnoughRoom} onClick={() => setPlayTogether(true)}>
+              <Icon name="play" size={12} />{t('select.playTogether', { n: selected.length })}
+            </button>
+          </span>
         </div>
       )}
       {playTogether && (

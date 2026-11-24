@@ -1,4 +1,5 @@
-import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { ItemRequest, Session, SessionGroup, SessionItem } from '../../api/types';
 import { useI18n } from '../../i18n';
@@ -16,33 +17,22 @@ import { LiveView, LogView } from './LiveView';
 import { Confirm } from '../common/Modal';
 import { SortableList, SortableRow, type SortableRowProps } from '../common/Sortable';
 
-const OPEN_EVENT = 'pcap-player:open-now-playing';
+/** The "Now playing" tab, where every running replay is shown in full. */
+export const PLAYING_PATH = '/playing';
 
-/** Expands the Now Playing panel (e.g. right after starting a replay). */
-export function openNowPlaying() {
-  window.dispatchEvent(new Event(OPEN_EVENT));
-}
-
-/** Docked above the bottom navigation on every page; shows every running replay from everyone. */
-export function NowPlaying() {
+/**
+ * A thin status line above the bottom navigation on every page: usage and one pill per running
+ * replay. It never expands over the page; clicking it opens the "Now playing" tab.
+ */
+export function NowPlayingStrip() {
   const { t } = useI18n();
   const { sessions, usage } = useLive();
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    const openPanel = () => setOpen(true);
-    window.addEventListener(OPEN_EVENT, openPanel);
-    return () => window.removeEventListener(OPEN_EVENT, openPanel);
-  }, []);
-  useEffect(() => {
-    if (sessions.length === 0) setOpen(false);
-  }, [sessions.length]);
-
+  const navigate = useNavigate();
   const active = sessions.length > 0;
   const entries = useMemo(() => groupSessions(sessions), [sessions]);
   return (
     <div className="now">
-      <div className="now-bar" onClick={() => active && setOpen(!open)}>
+      <div className="now-bar" role="link" onClick={() => navigate(PLAYING_PATH)} title={t('now.open')}>
         <div className={`eq${active ? '' : ' idle'}`}><span /><span /><span /></div>
         <strong>{t('now.title')}</strong>
         {usage.max > 0 && (
@@ -52,21 +42,24 @@ export function NowPlaying() {
         )}
         {!active && <span className="muted small">{t('now.empty')}</span>}
         <div className="now-strip">
-          {!open && entries.map((entry) => (entry.group
+          {entries.map((entry) => (entry.group
             ? <GroupPill key={entry.group.id} sessions={entry.sessions} />
             : <SessionPill key={entry.sessions[0].id} session={entry.sessions[0]} />))}
         </div>
-        {active && <Icon name={open ? 'chevronDown' : 'chevronUp'} />}
       </div>
-      {open && active && (
-        <div className="now-panel">
-          <div className="now-panel-inner">
-            {entries.map((entry) => (entry.group
-              ? <GroupCard key={entry.group.id} size={entry.group.size} sessions={entry.sessions} />
-              : <SessionCard key={entry.sessions[0].id} session={entry.sessions[0]} />))}
-          </div>
-        </div>
-      )}
+    </div>
+  );
+}
+
+/** Every running replay from everyone, as cards: replays started together share one card. */
+export function NowPlayingList() {
+  const { sessions } = useLive();
+  const entries = useMemo(() => groupSessions(sessions), [sessions]);
+  return (
+    <div className="col" style={{ gap: 14 }}>
+      {entries.map((entry) => (entry.group
+        ? <GroupCard key={entry.group.id} size={entry.group.size} sessions={entry.sessions} />
+        : <SessionCard key={entry.sessions[0].id} session={entry.sessions[0]} />))}
     </div>
   );
 }
@@ -140,6 +133,8 @@ function GroupPill({ sessions }: { sessions: Session[] }) {
 }
 
 const ALL_TAB = 'all';
+/** The tab open in each group's card, by group id; kept for as long as the app is open. */
+const openTabs = new Map<string, string>();
 
 /**
  * Replays started together: an "All" tab with every member's progress side by side, plus one tab
@@ -149,8 +144,14 @@ function GroupCard({ size, sessions }: { size: number; sessions: Session[] }) {
   const { t } = useI18n();
   const { nickname } = useNickname();
   const { run } = useAction();
-  const [tab, setTab] = useState(ALL_TAB);
   const [confirm, setConfirm] = useState(false);
+  const groupId = sessions[0].group?.id ?? '';
+  // remembered outside the component, so the tab is still open after visiting another page
+  const [tab, setTabState] = useState(() => openTabs.get(groupId) ?? ALL_TAB);
+  const setTab = (next: string) => {
+    openTabs.set(groupId, next);
+    setTabState(next);
+  };
   const shown = sessions.find((session) => session.id === tab);
   const activeTab = shown ? tab : ALL_TAB; // the chosen member may have finished
   const group = sessions[0].group; // the latest counts, as sent with every member

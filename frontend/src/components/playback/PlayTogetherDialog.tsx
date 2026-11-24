@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ApiError, api } from '../../api/client';
 import type { ItemRequest, Mode, PcapRecord } from '../../api/types';
 import { useI18n } from '../../i18n';
@@ -10,7 +11,7 @@ import { rememberTargets, suggestTarget } from '../../util/targetMemory';
 import { ModeBadge } from '../common/Badges';
 import { Icon } from '../common/Icon';
 import { Modal } from '../common/Modal';
-import { openNowPlaying } from './NowPlaying';
+import { PLAYING_PATH } from './NowPlaying';
 import { TargetFields } from './TargetFields';
 
 interface Entry {
@@ -31,6 +32,7 @@ export function PlayTogetherDialog({ records, onClose, onStarted }: {
   const { categoryById } = useCatalog();
   const { nickname } = useNickname();
   const { popup, toast } = useFeedback();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [entries, setEntries] = useState<Entry[]>(() => records.flatMap((record) => {
     const mode = categoryById.get(record.categoryId)?.mode;
@@ -70,7 +72,7 @@ export function PlayTogetherDialog({ records, onClose, onStarted }: {
       toast('success', t('together.started', { n: items.length }));
       onStarted();
       onClose();
-      openNowPlaying();
+      navigate(PLAYING_PATH); // the replays started together are shown in their own tab
     } catch (e) {
       // the server names the record that could not start; nothing was started
       const record = e instanceof ApiError ? (e.params.record as string | undefined) : undefined;

@@ -144,11 +144,12 @@ class ActiveReplaysTest {
         waitUntil("slots back after group failure", () -> engine.activeReplays() == 0);
 
         // refused at start (busy target): no slot is kept
-        engine.startGroup(waitingGroup("busy", 1), "dana");
+        engine.startGroup(waitingGroup("busy", 2), "dana");
         ItemRequest sameTarget = engine.views().get(0).items().stream()
                 .map(item -> new ItemRequest("listen-other", new Target(null, item.port()), 0)).findFirst().orElseThrow();
-        assertThrows(ReplayFailure.class, () -> engine.startGroup(List.of(sameTarget), "omer"));
-        assertEquals(1, engine.activeReplays());
+        assertEquals("TARGET_BUSY", assertThrows(ReplayFailure.class,
+                () -> engine.startGroup(List.of(sameTarget, listen("listen-free", freePort())), "omer")).code());
+        assertEquals(2, engine.activeReplays());
 
         // stop while waiting
         engine.stopAll("dana");

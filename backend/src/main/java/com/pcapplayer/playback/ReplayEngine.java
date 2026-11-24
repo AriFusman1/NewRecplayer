@@ -40,6 +40,9 @@ public class ReplayEngine {
 
     private static final int PREFETCH_THREADS = 2;
 
+    /** "Play together" needs at least this many recordings. */
+    static final int MIN_GROUP_SIZE = 2;
+
     private final ScriptSource source;
     private final ReplayListener listener;
     private final Settings settings;
@@ -118,10 +121,13 @@ public class ReplayEngine {
      * {@link ReplayGroup}). Slots and targets are taken for all of them first; if any cannot be,
      * nothing starts, and a target error names the record ({@code params.record}).
      *
-     * @throws ReplayFailure ACTIVE_LIMIT, DUPLICATE_TARGET, TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET
+     * @throws ReplayFailure GROUP_TOO_SMALL (400), ACTIVE_LIMIT, DUPLICATE_TARGET, TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET
      */
     public List<SessionView> startGroup(List<ItemRequest> requests, String startedBy) {
-        if (requests.isEmpty()) throw new ReplayFailure("EMPTY_PLAYLIST", Map.of(), "Nothing to play");
+        if (requests.size() < MIN_GROUP_SIZE) { // one recording is played with Play, not Play together
+            throw new ReplayFailure("GROUP_TOO_SMALL", Map.of("min", MIN_GROUP_SIZE, "requested", requests.size()),
+                    "Select at least " + MIN_GROUP_SIZE + " recordings to play together");
+        }
         activeReplays.take(requests.size()); // all or nothing
         List<ReplaySession> members = new ArrayList<>();
         Set<String> targets = new HashSet<>();

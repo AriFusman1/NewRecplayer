@@ -4,6 +4,9 @@ import { MS_PER_SECOND } from './time';
 /** Port suggested for a new target. */
 export const DEFAULT_PORT = 5000;
 
+/** "Play together" needs at least this many recordings (the server enforces the same rule). */
+export const MIN_PLAY_TOGETHER = 2;
+
 
 export function portValid(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535;

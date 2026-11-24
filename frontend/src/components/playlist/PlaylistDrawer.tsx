@@ -12,7 +12,6 @@ import { rememberTargets } from '../../util/targetMemory';
 import { ModeBadge } from '../common/Badges';
 import { Icon } from '../common/Icon';
 import { Confirm, Modal } from '../common/Modal';
-import { openNowPlaying } from '../playback/NowPlaying';
 import { RecordPicker } from '../records/RecordPicker';
 import { SortableList, SortableRow, type SortableRowProps } from '../common/Sortable';
 import { TargetFields } from '../playback/TargetFields';
@@ -50,7 +49,6 @@ export function PlaylistDrawer({ onClose }: { onClose: () => void }) {
     if (await run(() => api.start(draft, true, nickname, saved?.name ?? null), t('playlist.play'))) {
       rememberTargets(draft);
       onClose();
-      openNowPlaying();
     }
   };
 
