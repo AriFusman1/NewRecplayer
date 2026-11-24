@@ -9,6 +9,7 @@ import com.pcapplayer.uploadHandling.UploadService;
 import com.pcapplayer.web.live.LiveHub;
 import com.pcapplayer.web.routes.CatalogRoutes;
 import com.pcapplayer.web.routes.HealthRoutes;
+import com.pcapplayer.web.routes.IcdRoutes;
 import com.pcapplayer.web.routes.ReplayRoutes;
 import com.pcapplayer.web.routes.UploadRoutes;
 import io.vertx.core.Future;
@@ -48,6 +49,7 @@ public class ApiServer {
             else Http.error(context, ApiException.unavailable("NOT_READY", Map.of(), "Server is starting (loading metadata)"));
         });
         CatalogRoutes.mount(router, http, services.catalog(), services.cache());
+        IcdRoutes.mount(router, http, services.catalog().icds(), services.catalog().timeFix());
         ReplayRoutes.mount(router, http, services.engine());
         router.route("/api/*").handler(context -> Http.json(context, Http.NOT_FOUND, Map.of("code", "NOT_FOUND", "message", "No such endpoint")));
 

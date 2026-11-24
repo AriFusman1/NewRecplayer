@@ -1,6 +1,7 @@
 import type {
   Catalog, CaptureSummary, Category, HistoryEntry, ItemRequest, Mode, PcapRecord, Preview, SavedPlaylist, SavedPlaylistItem,
-  Session, Tag, UploadResult,
+  Session, Tag, UploadResult, IcdSummary, IcdTree, TimeFixView, TimeFixSaveResult, MessageTimeFix,
+  DecodeReport,
 } from './types';
 
 /** An error answer from the backend: `code` is translated by the UI. */
@@ -11,12 +12,17 @@ export class ApiError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return send<T>(method, path, body === undefined ? undefined : JSON.stringify(body));
+}
+
+/** Sends an already-serialized JSON body (e.g. a file's text) as is. */
+async function send<T>(method: string, path: string, jsonText?: string): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
       method,
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: jsonText === undefined ? undefined : { 'content-type': 'application/json' },
+      body: jsonText,
     });
   } catch {
     throw new ApiError(0, 'NETWORK', {}, 'Server unreachable');
@@ -106,4 +112,23 @@ export const api = {
     call<void>('POST', `/api/sessions/${id}/seek`, { positionUs, by }),
   updateUpcoming: (id: string, currentSleepAfterMs: number | null, items: ItemRequest[]) =>
     call<Session>('PUT', `/api/sessions/${id}/upcoming`, { currentSleepAfterMs, items }),
+
+  icds: () => call<IcdSummary[]>('GET', '/api/icds'),
+  icdTree: (id: string) => call<IcdTree>('GET', `/api/icds/${encodeURIComponent(id)}/tree`),
+  /** Uploads an ICD file's text (JSON ICD format); the same id replaces the uploaded one. */
+  uploadIcd: (jsonText: string) => send<IcdSummary>('POST', '/api/icds', jsonText),
+  deleteIcd: (id: string) => call<void>('DELETE', `/api/icds/${encodeURIComponent(id)}`),
+  icdJsonUrl: (id: string) => `/api/icds/${encodeURIComponent(id)}/json`,
+  setCategoryIcd: (categoryId: string, icdId: string | null) =>
+    call<Category>('PUT', `/api/categories/${categoryId}/icd`, { icdId }),
+  timeFix: (categoryId: string) => call<TimeFixView>('GET', `/api/categories/${categoryId}/timefix`),
+  saveTimeFix: (categoryId: string, messages: MessageTimeFix[]) =>
+    call<TimeFixSaveResult>('PUT', `/api/categories/${categoryId}/timefix`, { messages }),
+  decodeRecord: (recordId: string, limit?: number, opcode?: string, icd?: string) => {
+    const query = new URLSearchParams();
+    if (limit !== undefined) query.set('limit', String(limit));
+    if (opcode) query.set('opcode', opcode);
+    if (icd) query.set('icd', icd);
+    return call<DecodeReport>('GET', `/api/records/${recordId}/decode?${query}`);
+  },
 };

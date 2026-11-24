@@ -7,7 +7,6 @@ import com.pcapplayer.icd.analysis.DecodeReport;
 import com.pcapplayer.icd.analysis.MessageCountAnalyzer;
 import com.pcapplayer.icd.decode.DecodeStats;
 import com.pcapplayer.icd.decode.ScriptDecoder;
-import com.pcapplayer.icd.loading.IcdRegistry;
 import com.pcapplayer.icd.loading.JsonIcdLoader;
 import com.pcapplayer.icd.model.IcdDefinition;
 import com.pcapplayer.pcapProcessing.decode.Ipv4Packet;
@@ -35,9 +34,9 @@ public class RecordDecodeService {
     private final CatalogSupport catalog;
     private final FileCache cache;
     private final CachingExtractor extractor;
-    private final IcdRegistry icds;
+    private final IcdService icds;
 
-    RecordDecodeService(CatalogSupport catalog, FileCache cache, CachingExtractor extractor, IcdRegistry icds) {
+    RecordDecodeService(CatalogSupport catalog, FileCache cache, CachingExtractor extractor, IcdService icds) {
         this.catalog = catalog;
         this.cache = cache;
         this.extractor = extractor;
@@ -67,9 +66,7 @@ public class RecordDecodeService {
         String id = Strings.isBlank(requestedId) ? category.icdId() : requestedId.trim();
         if (id == null) throw ApiException.unprocessable("NO_ICD", Map.of("category", category.name()), "The category has no ICD");
 
-        IcdDefinition icd = icds.find(id);
-        if (icd == null) throw ApiException.notFound("ICD_NOT_FOUND", Map.of("id", id), "ICD not found");
-        return icd;
+        return icds.require(id);
     }
 
     private static Long parseOpcode(String opcode) {

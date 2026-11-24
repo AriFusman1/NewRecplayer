@@ -339,12 +339,16 @@ backend/                          Maven project; all versions pinned in pom.xml 
       analysis/            MessageAnalyzer (consumer of decoded messages), MessageCountAnalyzer, DecodeReport
       timefix/             time fixing: ETimeKind, TimeCodec (value ↔ instant), TimeAnchoring, FieldWriter,
                            TimeFixPlanner (decoded messages + profile → PatchPlan), MessagePatch, StepCopies
-      profile/             TimeFixProfile: per category, the base field and fields to fix of each message
+      profile/             TimeFixProfile: per category, the base field and fields to fix of each message;
+                           TimeFixProfileValidator
+      tree/                IcdTree: an ICD's structure for the UI (paths, types, sizes, which fields hold numbers)
       versions/            one sub-package per ICD version written in Java
     recordManagement/
       service/             business rules: RecordService (preview, create, edit, delete), TaxonomyService
                            (categories, tags), PlaylistService, RecordScriptSource (records → replay
-                           scripts), CatalogService (entry point), CatalogSupport (shared lock and helpers)
+                           scripts), IcdService (ICDs, category → ICD), TimeFixService (profiles),
+                           RecordDecodeService (debug decode), CatalogService (entry point),
+                           CatalogSupport (shared lock and helpers)
       model/               the stored data: Record, Category, Tag, PcapFile, SavedPlaylist, RecordStats
       repository/          CatalogRepository: all metadata in memory, written through to storage
     uploadHandling/        UploadService: uploads in progress (hash and scan)
@@ -506,7 +510,9 @@ then be cut into messages and decoded:
 pcaps/{fileId}.pcap|pcapng   capture, stored once per SHA-256
 pcaps/{fileId}.json          name, size, format, uploader, scan summary (with timeline)
 records/{recordId}.json      name, description, category, tags, ports, IP filter, range, stats
-categories/{id}.json         name and connection mode
+categories/{id}.json         name, connection mode and ICD id
+icds/{icdId}.json            an uploaded ICD, exactly as uploaded
+timefix/{categoryId}.json    the category's time-fix profile
 playlists/{id}.json          saved playlist: name and items (record, target, pause)
 tags.json                    all tags
 history.json                 the last runs, newest first
@@ -532,6 +538,10 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `POST /api/preview` | what a draft record would contain (stats, warnings, errors) |
 | `POST /api/records` | create; `409 DUPLICATE` unless `resolution: "NEW_NAME"` |
 | `PUT` / `DELETE /api/records/{id}`, `GET /api/records/{id}/download` | edit, delete, download the capture |
+| `GET /api/icds`, `GET /api/icds/{id}/tree`, `GET /api/icds/{id}/json` | ICDs (Java and uploaded), one ICD's structure, an uploaded ICD's file |
+| `POST /api/icds` (body: the ICD JSON file), `DELETE /api/icds/{id}` | upload or replace an ICD (`422 ICD_INVALID` lists every problem with its JSON path); delete one no category uses |
+| `PUT /api/categories/{id}/icd` | `{icdId}` (null to clear): the ICD the category's messages follow |
+| `GET` / `PUT /api/categories/{id}/timefix` | the category's time-fix profile with its ICD tree and warnings / save `{messages: [{opcode, base: {path, kind}, fields: [...]}]}` |
 | `GET /api/records/{id}/decode?limit=&opcode=&icd=` | debug: the record decoded with its category's ICD (or `icd`): counts per opcode, decode problems, the first `limit` messages (default 100) with fields and byte locations |
 | `POST` / `PUT` / `DELETE /api/categories[/{id}]`, `GET /api/categories/{id}/usage` | categories |
 | `POST` / `PUT` / `DELETE /api/tags[/{id}]` | tags |

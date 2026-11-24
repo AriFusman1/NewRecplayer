@@ -23,6 +23,7 @@ import io.vertx.core.VertxOptions;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -61,7 +62,7 @@ public final class Main {
         // The catalog notifies the hub of changes, and the hub stores history in the catalog.
         AtomicReference<LiveHub> hubRef = new AtomicReference<>();
         CatalogService catalog = new CatalogService(repo, uploads, cache, extractor, IcdRegistry.withBuiltIns(),
-                config.histogram().maxBins(), () -> hubRef.get().catalogChanged());
+                config.histogram().maxBins(), Clock.systemUTC(), () -> hubRef.get().catalogChanged());
         LiveHub hub = new LiveHub(entry -> storeHistory(catalog, entry));
         hubRef.set(hub);
         ReplayEngine engine = new ReplayEngine(catalog.scriptSource(), hub,

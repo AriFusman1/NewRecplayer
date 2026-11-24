@@ -58,7 +58,7 @@ public class TaxonomyService {
         return records.countInCategory(id);
     }
 
-    /** Deletes the category, all its records, its tags and any pcap files no longer used. */
+    /** Deletes the category, all its records, its tags, its time-fix profile and any pcap files no longer used. */
     public void deleteCategory(String id) {
         catalog.mutate(() -> {
             catalog.requireCategory(id);
@@ -67,6 +67,7 @@ public class TaxonomyService {
 
             writeToStorage(() -> {
                 catalog.repo.saveTags(remaining);
+                catalog.repo.deleteProfile(id);
                 catalog.repo.deleteCategory(id);
             });
         });
