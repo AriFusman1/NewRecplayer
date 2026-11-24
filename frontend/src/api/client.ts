@@ -1,5 +1,6 @@
 import type {
-  Catalog, CaptureSummary, Category, HistoryEntry, ItemRequest, Mode, PcapRecord, Preview, Session, Tag, UploadResult,
+  Catalog, CaptureSummary, Category, HistoryEntry, ItemRequest, Mode, PcapRecord, Preview, SavedPlaylist, SavedPlaylistItem,
+  Session, Tag, UploadResult,
 } from './types';
 
 /** An error answer from the backend: `code` is translated by the UI. */
@@ -10,9 +11,9 @@ export class ApiError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  let res: Response;
+  let response: Response;
   try {
-    res = await fetch(path, {
+    response = await fetch(path, {
       method,
       headers: body === undefined ? undefined : { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -20,11 +21,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   } catch {
     throw new ApiError(0, 'NETWORK', {}, 'Server unreachable');
   }
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
+  if (response.status === 204) return undefined as T;
+  const text = await response.text();
   const data = text ? JSON.parse(text) : undefined;
-  if (!res.ok) {
-    throw new ApiError(res.status, data?.code ?? 'INTERNAL_ERROR', data?.params ?? {}, data?.message ?? res.statusText);
+  if (!response.ok) {
+    throw new ApiError(response.status, data?.code ?? 'INTERNAL_ERROR', data?.params ?? {}, data?.message ?? response.statusText);
   }
   return data as T;
 }
@@ -53,11 +54,11 @@ export const api = {
   fileSummary: (fileId: string) => call<CaptureSummary>('GET', `/api/files/${fileId}/summary`),
 
   /** Streams the file as the raw request body; reports upload progress 0..1. */
-  upload(file: File, uploadedBy: string, onProgress: (f: number) => void): Promise<UploadResult> {
+  upload(file: File, uploadedBy: string, onProgress: (fraction: number) => void): Promise<UploadResult> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      const q = new URLSearchParams({ fileName: file.name, uploadedBy });
-      xhr.open('POST', `/api/uploads?${q}`);
+      const query = new URLSearchParams({ fileName: file.name, uploadedBy });
+      xhr.open('POST', `/api/uploads?${query}`);
       xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
       xhr.onerror = () => reject(new ApiError(0, 'NETWORK', {}, 'Upload failed'));
       xhr.onload = () => {
@@ -75,10 +76,10 @@ export const api = {
   },
   discardUpload: (id: string) => call<void>('DELETE', `/api/uploads/${id}`),
 
-  preview: (d: DraftBody) => call<Preview>('POST', '/api/preview', d),
-  createRecord: (b: CreateBody) => call<PcapRecord>('POST', '/api/records', b),
-  updateRecord: (id: string, b: { name: string; description: string; startUs: number; endUs: number }) =>
-    call<PcapRecord>('PUT', `/api/records/${id}`, b),
+  preview: (draft: DraftBody) => call<Preview>('POST', '/api/preview', draft),
+  createRecord: (body: CreateBody) => call<PcapRecord>('POST', '/api/records', body),
+  updateRecord: (id: string, body: { name: string; description: string; startUs: number; endUs: number }) =>
+    call<PcapRecord>('PUT', `/api/records/${id}`, body),
   deleteRecord: (id: string) => call<void>('DELETE', `/api/records/${id}`),
   downloadUrl: (id: string) => `/api/records/${id}/download`,
 
@@ -91,10 +92,18 @@ export const api = {
   renameTag: (id: string, name: string) => call<Tag>('PUT', `/api/tags/${id}`, { name }),
   deleteTag: (id: string) => call<void>('DELETE', `/api/tags/${id}`),
 
+  createPlaylist: (name: string, items: SavedPlaylistItem[], by: string) =>
+    call<SavedPlaylist>('POST', '/api/playlists', { name, items, by }),
+  updatePlaylist: (id: string, name: string, items: SavedPlaylistItem[], by: string) =>
+    call<SavedPlaylist>('PUT', `/api/playlists/${id}`, { name, items, by }),
+  deletePlaylist: (id: string) => call<void>('DELETE', `/api/playlists/${id}`),
+
   sessions: () => call<Session[]>('GET', '/api/sessions'),
   start: (items: ItemRequest[], playlist: boolean, startedBy: string) =>
     call<Session>('POST', '/api/sessions', { items, playlist, startedBy }),
   stop: (id: string, by: string) => call<void>('POST', `/api/sessions/${id}/stop`, { by }),
+  seek: (id: string, positionUs: number, by: string) =>
+    call<void>('POST', `/api/sessions/${id}/seek`, { positionUs, by }),
   updateUpcoming: (id: string, currentSleepAfterMs: number | null, items: ItemRequest[]) =>
     call<Session>('PUT', `/api/sessions/${id}/upcoming`, { currentSleepAfterMs, items }),
 };

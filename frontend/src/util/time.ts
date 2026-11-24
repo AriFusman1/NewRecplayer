@@ -1,72 +1,61 @@
 // All user-facing times are Israel time (Asia/Jerusalem), "DD/MM/YYYY HH:MM:SS".
 // Internally everything is epoch microseconds; conversion happens only here.
+// Time zones and daylight saving are handled by date-fns + @date-fns/tz.
+
+import { TZDate } from '@date-fns/tz';
+import { format, isValid, parse } from 'date-fns';
+import prettyBytes from 'pretty-bytes';
 
 const TZ = 'Asia/Jerusalem';
-const fmt = new Intl.DateTimeFormat('en-GB', {
-  timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-});
+const DISPLAY = 'dd/MM/yyyy HH:mm:ss';
+/** Accepts 1- or 2-digit day, month and hour when typing. */
+const INPUT = 'd/M/yyyy H:mm:ss';
 
-function parts(ms: number): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const p of fmt.formatToParts(new Date(ms))) if (p.type !== 'literal') out[p.type] = Number(p.value);
-  return out;
+export const MS_PER_SECOND = 1000;
+const US_PER_MS = 1000;
+const US_PER_SECOND = US_PER_MS * MS_PER_SECOND;
+const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 3600;
+
+/**
+ * A typed time (whole seconds, epoch ms) as epoch µs. Range ends are inclusive, so an end time
+ * covers its whole second.
+ */
+export function msToUs(epochMs: number, endOfSecond = false): number {
+  return epochMs * US_PER_MS + (endOfSecond ? US_PER_SECOND - 1 : 0);
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
-export function formatMs(ms: number): string {
-  const p = parts(ms);
-  return `${pad(p.day)}/${pad(p.month)}/${p.year} ${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
+export function formatMs(epochMs: number): string {
+  return format(new TZDate(epochMs, TZ), DISPLAY);
 }
 
-export function formatUs(us: number): string {
-  return formatMs(Math.floor(us / 1000));
+export function formatUs(epochUs: number): string {
+  return formatMs(Math.floor(epochUs / US_PER_MS));
 }
 
-/** Offset of Israel time from UTC at the given instant, in ms. */
-function offsetAt(ms: number): number {
-  const p = parts(ms);
-  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
-  return asUtc - Math.floor(ms / 1000) * 1000;
-}
-
-const RE = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*$/;
-
-/** Parses "DD/MM/YYYY HH:MM:SS" (Israel time) to epoch ms; null if invalid. */
+/** Parses "DD/MM/YYYY HH:MM:SS" (Israel time) to epoch ms; null if invalid (e.g. 31/02). */
 export function parseMs(text: string): number | null {
-  const m = RE.exec(text);
-  if (!m) return null;
-  const [d, mo, y, h, mi, s] = m.slice(1).map(Number);
-  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) return null;
-  const wall = Date.UTC(y, mo - 1, d, h, mi, s);
-  let ms = wall - offsetAt(wall);
-  ms = wall - offsetAt(ms); // second pass settles DST transitions
-  const back = parts(ms);
-  if (back.day !== d || back.month !== mo) return null; // e.g. 31/02
-  return ms;
+  const normalized = text.trim().replace(/\s+/g, ' ');
+  // the reference date makes date-fns read the wall-clock time in Israel time
+  const parsed = parse(normalized, INPUT, new TZDate(0, TZ));
+  return isValid(parsed) ? parsed.getTime() : null;
 }
 
-export function formatDuration(us: number): string {
-  const total = Math.max(0, Math.floor(us / 1_000_000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+/** "mm:ss", or "h:mm:ss" from one hour. */
+export function formatDuration(durationUs: number): string {
+  const total = Math.max(0, Math.floor(durationUs / US_PER_SECOND));
+  const hours = Math.floor(total / SECONDS_PER_HOUR);
+  const minutes = Math.floor((total % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+  const seconds = total % SECONDS_PER_MINUTE;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`;
 }
 
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let v = n / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+/** "1.5 MB" (decimal units, as file managers show). */
+export function formatBytes(bytes: number): string {
+  return prettyBytes(bytes);
 }
 
-export function formatNumber(n: number): string {
-  return n.toLocaleString('en-US');
+export function formatNumber(value: number): string {
+  return value.toLocaleString('en-US');
 }

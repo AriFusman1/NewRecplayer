@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { connectLive } from '../api/live';
 import type { Session } from '../api/types';
 import { useI18n } from '../i18n';
@@ -30,36 +30,37 @@ export function LiveProvider({ children, onCatalogChange }: { children: ReactNod
   const helpers = useRef({ t, tc, popup, toast, nickname, onCatalogChange });
   helpers.current = { t, tc, popup, toast, nickname, onCatalogChange };
 
-  useEffect(() => connectLive((m) => {
-    const h = helpers.current;
-    switch (m.type) {
+  useEffect(() => connectLive((message) => {
+    const latest = helpers.current;
+    switch (message.type) {
       case 'sessions':
-        setSessions(m.sessions);
+        setSessions(message.sessions);
         break;
       case 'catalog':
-        h.onCatalogChange();
+        latest.onCatalogChange();
         break;
       case 'history':
-        setHistorySignal((n) => n + 1);
+        setHistorySignal((signal) => signal + 1);
         break;
       case 'notice': {
-        const text = h.tc('err', m.code, m.params, m.code);
-        const title = m.code === 'CLIENT_DISCONNECTED' ? h.t('notice.CLIENT_DISCONNECTED') : h.t('notice.failed');
-        if (m.startedBy === h.nickname) h.popup(title, text, m.level === 'error' ? 'error' : 'warning');
-        else h.toast(m.level === 'error' ? 'error' : 'warning', `${title}: ${text}`);
+        const text = latest.tc('err', message.code, message.params, message.code);
+        const title = message.code === 'CLIENT_DISCONNECTED' ? latest.t('notice.CLIENT_DISCONNECTED') : latest.t('notice.failed');
+        if (message.startedBy === latest.nickname) latest.popup(title, text, message.level === 'error' ? 'error' : 'warning');
+        else latest.toast(message.level === 'error' ? 'error' : 'warning', `${title}: ${text}`);
         break;
       }
     }
-  }, (c) => {
-    setConnected(c);
-    if (c) helpers.current.onCatalogChange(); // resync after reconnect
+  }, (isConnected) => {
+    setConnected(isConnected);
+    if (isConnected) helpers.current.onCatalogChange(); // resync after reconnect
   }), []);
 
-  return <Ctx.Provider value={{ sessions, connected, historySignal }}>{children}</Ctx.Provider>;
+  const value = useMemo(() => ({ sessions, connected, historySignal }), [sessions, connected, historySignal]);
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useLive(): LiveState {
-  const v = useContext(Ctx);
-  if (!v) throw new Error('useLive outside provider');
-  return v;
+  const state = useContext(Ctx);
+  if (!state) throw new Error('useLive outside provider');
+  return state;
 }

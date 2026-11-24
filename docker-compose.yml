@@ -1,0 +1,23 @@
+#   docker compose up --build        then open http://localhost:8080
+#
+# As written: no S3, data is kept in the "pcap-data" volume.
+#
+# To use S3 with the address and secrets from your configuration file:
+#   1. cp config/application.example.yml config/application.yml   and fill it in
+#   2. below, delete the "environment" block (it would override the file's storage type)
+#      and uncomment the config/application.yml volume line
+services:
+  pcap-player:
+    build: .
+    image: pcap-player:local
+    ports:
+      - "8080:8080"
+    environment:
+      STORAGE_TYPE: filesystem
+    volumes:
+      - pcap-data:/tmp/pcap-player/store
+      # - ./config/application.yml:/app/config/application.yml:ro
+    restart: unless-stopped
+
+volumes:
+  pcap-data:

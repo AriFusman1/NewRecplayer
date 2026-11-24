@@ -1,7 +1,10 @@
-# PCAP Player configuration.
-# Every key can be overridden by an environment variable: upper-case the path and replace
-# '.' and '-' with '_'. Example: s3.access-key -> S3_ACCESS_KEY, server.port -> SERVER_PORT.
-# An extra YAML file can be layered on top with CONFIG_FILE=/path/to/application.yml.
+# PCAP Player defaults. Don't put your settings or secrets here.
+#
+# Put them in config/application.yml (copy config/application.example.yml). It is read
+# automatically from the working directory (in Docker: /app/config/application.yml), or from the
+# file named by CONFIG_FILE, and overrides these defaults.
+# Environment variables override both: upper-case the key path and replace '.' and '-' with '_'.
+# Example: s3.access-key -> S3_ACCESS_KEY, server.port -> SERVER_PORT.
 
 server:
   host: 0.0.0.0
@@ -40,6 +43,8 @@ extraction:
   fragment-timeout-ms: 30000
   tcp-gap-timeout-ms: 2000
   udp-duplicate-window-ms: 5
+  # parsed captures kept in memory (previews, saves and replays reuse them); 0 disables
+  cache-max-bytes: 268435456
 
 history:
   size: 20

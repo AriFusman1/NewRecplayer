@@ -3,7 +3,7 @@ import { loadPref, savePref } from '../util/prefs';
 
 interface NicknameState {
   nickname: string;
-  setNickname: (n: string) => void;
+  setNickname: (name: string) => void;
 }
 
 const Ctx = createContext<NicknameState | null>(null);
@@ -11,16 +11,16 @@ const Ctx = createContext<NicknameState | null>(null);
 /** The nickname lives in this browser's localStorage; no login. */
 export function NicknameProvider({ children }: { children: ReactNode }) {
   const [nickname, setState] = useState(() => loadPref('nickname') ?? '');
-  const setNickname = useCallback((n: string) => {
-    const v = n.trim();
-    savePref('nickname', v);
-    setState(v);
+  const setNickname = useCallback((name: string) => {
+    const trimmed = name.trim();
+    savePref('nickname', trimmed);
+    setState(trimmed);
   }, []);
   return <Ctx.Provider value={{ nickname, setNickname }}>{children}</Ctx.Provider>;
 }
 
 export function useNickname(): NicknameState {
-  const v = useContext(Ctx);
-  if (!v) throw new Error('useNickname outside provider');
-  return v;
+  const state = useContext(Ctx);
+  if (!state) throw new Error('useNickname outside provider');
+  return state;
 }

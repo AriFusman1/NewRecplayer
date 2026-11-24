@@ -20,15 +20,29 @@
         <aws.sdk.version>2.31.30</aws.sdk.version>
         <!-- Vert.x manages 2.0; jackson-dataformat-yaml 2.18 is built against 2.3 -->
         <snakeyaml.version>2.3</snakeyaml.version>
+        <!-- pcap/pcapng reading (libpcap via JNA) and packet decoding -->
+        <pcap4j.version>1.8.2</pcap4j.version>
+        <!-- pcap4j 1.8.2 is built against JNA 5.3.1; a newer 5.x is backward compatible -->
+        <jna.version>5.14.0</jna.version>
+        <!-- in-memory cache of parsed captures (size-bounded, one load per key) -->
+        <caffeine.version>3.1.8</caffeine.version>
+
+        <junit.version>5.11.4</junit.version>
 
         <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
         <maven.resources.plugin.version>3.3.1</maven.resources.plugin.version>
         <maven.jar.plugin.version>3.4.1</maven.jar.plugin.version>
         <maven.shade.plugin.version>3.6.0</maven.shade.plugin.version>
+        <maven.surefire.plugin.version>3.5.2</maven.surefire.plugin.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>net.java.dev.jna</groupId>
+                <artifactId>jna</artifactId>
+                <version>${jna.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.yaml</groupId>
                 <artifactId>snakeyaml</artifactId>
@@ -80,6 +94,24 @@
             <artifactId>jackson-dataformat-yaml</artifactId>
         </dependency>
 
+        <!-- Capture files are read by the native libpcap (libpcap0.8 on Linux, Npcap on Windows)
+             through pcap4j; the static packet factory decodes Ethernet/VLAN/SLL/IPv4/TCP/UDP. -->
+        <dependency>
+            <groupId>org.pcap4j</groupId>
+            <artifactId>pcap4j-core</artifactId>
+            <version>${pcap4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.pcap4j</groupId>
+            <artifactId>pcap4j-packetfactory-static</artifactId>
+            <version>${pcap4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>${caffeine.version}</version>
+        </dependency>
+
         <!-- S3 client; the Netty and Apache HTTP clients are excluded in favour of the
              JDK-based url-connection-client to keep the dependency tree small. -->
         <dependency>
@@ -100,6 +132,14 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>url-connection-client</artifactId>
         </dependency>
+
+        <!-- Tests -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -119,6 +159,11 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>${maven.jar.plugin.version}</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${maven.surefire.plugin.version}</version>
             </plugin>
             <!-- Single runnable fat jar: target/pcap-player.jar -->
             <plugin>
