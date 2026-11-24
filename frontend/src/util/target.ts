@@ -4,6 +4,9 @@ import { MS_PER_SECOND } from './time';
 /** Port suggested for a new target. */
 export const DEFAULT_PORT = 5000;
 
+/** Most records that can be played together (the server enforces the same limit). */
+export const MAX_PLAY_TOGETHER = 10;
+
 export function portValid(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
@@ -16,6 +19,14 @@ export function targetValid(mode: Mode, host: string | null, port: number): bool
 /** ":5000" for a listening port, "10.0.0.5:5000" for a target service. */
 export function formatTarget(mode: Mode, host: string | null, port: number): string {
   return mode === 'TCP_CLIENT' ? `:${port}` : `${host ?? ''}:${port}`;
+}
+
+/**
+ * Identifies what a target occupies: the port we listen on (TCP_CLIENT), or the service's
+ * host:port. Two items with the same key cannot play at the same time.
+ */
+export function targetKey(mode: Mode, host: string | null, port: number): string {
+  return mode === 'TCP_CLIENT' ? `listen:${port}` : `${(host ?? '').trim().toLowerCase()}:${port}`;
 }
 
 /** A host field's initial value: none for TCP_CLIENT (we listen), otherwise `fallback`. */

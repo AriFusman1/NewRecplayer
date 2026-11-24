@@ -12,8 +12,11 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -74,8 +77,56 @@ public class ReplayEngine {
      */
     public SessionView start(List<ItemRequest> requests, boolean playlist, String startedBy) {
         if (requests.isEmpty()) throw new ReplayFailure("EMPTY_PLAYLIST", Map.of(), "Nothing to play");
-        List<SessionItem> items = toItems(requests);
-        ReplaySession session = new ReplaySession(this, playlist, startedBy, items);
+        ReplaySession session = new ReplaySession(this, playlist, startedBy, toItems(requests));
+        reserveFirstItem(session);
+        launch(session);
+        return session.view();
+    }
+
+    /**
+     * "Play together": one single replay per request, all starting at the same moment. Every
+     * target is reserved first; if any of them cannot be, nothing starts and the error names the
+     * record ({@code params.record}).
+     *
+     * @throws ReplayFailure GROUP_SIZE, DUPLICATE_TARGET, TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET
+     */
+    public List<SessionView> startGroup(List<ItemRequest> requests, String startedBy) {
+        if (requests.isEmpty() || requests.size() > ReplayGroup.MAX_SIZE) {
+            throw new ReplayFailure("GROUP_SIZE", Map.of("max", ReplayGroup.MAX_SIZE),
+                    "Choose between 1 and " + ReplayGroup.MAX_SIZE + " records to play together");
+        }
+        List<ReplaySession> members = new ArrayList<>();
+        Set<String> targets = new HashSet<>();
+
+        try {
+            for (ItemRequest request : requests) {
+                ReplaySession session = new ReplaySession(this, false, startedBy, toItems(List.of(request)));
+                SessionItem item = session.firstItem();
+
+                try {
+                    if (!targets.add(lockKey(item.info.mode(), item.target))) {
+                        String target = item.target.describe(item.info.mode());
+                        throw new ReplayFailure("DUPLICATE_TARGET", Map.of("target", target),
+                                target + " is chosen for more than one record");
+                    }
+                    reserveFirstItem(session);
+                } catch (ReplayFailure failure) {
+                    throw naming(failure, item.info.name());
+                }
+                members.add(session);
+            }
+        } catch (RuntimeException e) {
+            members.forEach(ReplaySession::releasePreAcquired); // all or nothing
+            throw e;
+        }
+        ReplayGroup group = new ReplayGroup(members.size());
+        members.forEach(session -> session.joinGroup(group));
+        members.forEach(this::launch);
+        return members.stream().map(ReplaySession::view).toList();
+    }
+
+    /** Reserves the first item's target (and binds its listen port for TCP_CLIENT) for {@code session}. */
+    private void reserveFirstItem(ReplaySession session) {
         SessionItem first = session.firstItem();
         String key = acquire(first.info.mode(), first.target, session);
         Transport transport = null;
@@ -87,12 +138,21 @@ public class ReplayEngine {
             throw failure;
         }
         session.preAcquired(key, transport);
+    }
+
+    private void launch(ReplaySession session) {
         sessions.put(session.id, session);
         Thread thread = new Thread(session, "replay-" + session.id.substring(0, 8));
         thread.setPriority(Thread.MAX_PRIORITY);
         thread.start();
         changed();
-        return session.view();
+    }
+
+    /** The same failure with the record's name added, so the UI can say which record could not start. */
+    private static ReplayFailure naming(ReplayFailure failure, String recordName) {
+        Map<String, Object> params = new HashMap<>(failure.params());
+        params.put("record", recordName);
+        return new ReplayFailure(failure.code(), params, recordName + ": " + failure.getMessage());
     }
 
     public void stop(String sessionId, String requestedBy) {

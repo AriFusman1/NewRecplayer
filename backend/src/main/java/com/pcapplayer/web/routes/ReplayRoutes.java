@@ -21,6 +21,9 @@ public final class ReplayRoutes {
     record StartBody(List<ItemBody> items, boolean playlist, String startedBy) {
     }
 
+    record GroupBody(List<ItemBody> items, String startedBy) {
+    }
+
     record StopBody(String by) {
     }
 
@@ -43,6 +46,11 @@ public final class ReplayRoutes {
         router.post("/api/sessions").handler(context -> http.blockingCreated(context, () -> {
             StartBody body = Http.body(context, StartBody.class);
             return engine.start(toRequests(body.items()), body.playlist(), body.startedBy());
+        }));
+        // "Play together": up to 10 single replays started at once, all or nothing
+        router.post("/api/sessions/group").handler(context -> http.blockingCreated(context, () -> {
+            GroupBody body = Http.body(context, GroupBody.class);
+            return engine.startGroup(toRequests(body.items()), body.startedBy());
         }));
         router.post("/api/sessions/:id/stop").handler(context -> http.blockingVoid(context, () ->
                 engine.stop(context.pathParam("id"), Http.body(context, StopBody.class).by())));

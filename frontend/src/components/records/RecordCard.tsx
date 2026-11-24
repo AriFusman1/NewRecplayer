@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { useAction, useFeedback } from '../../state/feedback';
 import { usePlaylist } from '../../state/playlist';
+import { MAX_PLAY_TOGETHER } from '../../util/target';
 import { formatBytes, formatDuration, formatMs, formatNumber, formatUs } from '../../util/time';
 import { ModeBadge, Warnings } from '../common/Badges';
 import { MiniBars } from '../graphs/BarGraph';
@@ -13,8 +14,18 @@ import { Icon } from '../common/Icon';
 import { Confirm } from '../common/Modal';
 import { PlayDialog } from '../playback/PlayDialog';
 
+interface Props {
+  record: PcapRecord;
+  /** Chosen for "Play together". */
+  selected?: boolean;
+  /** False when the selection is full (and this card is not in it). */
+  canSelect?: boolean;
+  /** Must be a stable callback, or the memo is useless. */
+  onToggleSelect?: (recordId: string) => void;
+}
+
 /** One record with all its info and actions. Memoized: the player page re-renders on every keystroke. */
-export const RecordCard = memo(function RecordCard({ record }: { record: PcapRecord }) {
+export const RecordCard = memo(function RecordCard({ record, selected = false, canSelect = true, onToggleSelect }: Props) {
   const { t } = useI18n();
   const { categoryById, tagById, fileById } = useCatalog();
   const { add } = usePlaylist();
@@ -32,7 +43,7 @@ export const RecordCard = memo(function RecordCard({ record }: { record: PcapRec
   };
 
   return (
-    <article className="card record-card">
+    <article className={`card record-card${selected ? ' selected' : ''}`}>
       <div className="row between" style={{ alignItems: 'flex-start' }}>
         <div className="col grow" style={{ gap: 6 }}>
           <div className="name">{record.name}</div>
@@ -44,6 +55,13 @@ export const RecordCard = memo(function RecordCard({ record }: { record: PcapRec
             ))}
           </div>
         </div>
+        {onToggleSelect && (
+          <label className={`select-box${canSelect || selected ? '' : ' disabled'}`}
+            title={canSelect || selected ? t('select.toggle') : t('select.limit', { max: MAX_PLAY_TOGETHER })}>
+            <input type="checkbox" checked={selected} disabled={!canSelect && !selected}
+              onChange={() => onToggleSelect(record.id)} aria-label={t('select.toggle')} />
+          </label>
+        )}
       </div>
       {record.description && <div className="desc">{record.description}</div>}
       <MiniBars histogram={stats.histogram} />

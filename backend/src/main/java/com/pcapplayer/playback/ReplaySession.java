@@ -58,6 +58,10 @@ public class ReplaySession implements Runnable {
     private String firstLockKey;
     private Transport firstTransport;
 
+    /** Set when started together with other records; only the session thread touches arrivedAtGate. */
+    private ReplayGroup group;
+    private boolean arrivedAtGate;
+
     ReplaySession(ReplayEngine engine, boolean playlist, String startedBy, List<SessionItem> items) {
         this.engine = engine;
         this.playlist = playlist;
@@ -68,6 +72,14 @@ public class ReplaySession implements Runnable {
     void preAcquired(String lockKey, Transport transport) {
         this.firstLockKey = lockKey;
         this.firstTransport = transport;
+    }
+
+    /** Undoes {@link #preAcquired} for a session that will not be started after all. */
+    void releasePreAcquired() {
+        if (firstTransport != null) firstTransport.close();
+        engine.release(firstLockKey, this);
+        firstLockKey = null;
+        firstTransport = null;
     }
 
     private <T> T locked(Supplier<T> work) {
@@ -89,6 +101,10 @@ public class ReplaySession implements Runnable {
 
     private boolean stopRequested() {
         return stoppedBy.get() != null;
+    }
+
+    void joinGroup(ReplayGroup replayGroup) {
+        this.group = replayGroup;
     }
 
     SessionItem firstItem() {
@@ -160,7 +176,7 @@ public class ReplaySession implements Runnable {
         }
         long sleepLeft = stateNow == EItemState.SLEEPING ? Math.max(0, sleepUntilMs.get() - System.currentTimeMillis()) : 0;
         return new SessionView(id, playlist, startedBy, startedAtMs, version, stateNow.name(), current, list, progressView,
-                sleepLeft, new ArrayList<>(log));
+                sleepLeft, new ArrayList<>(log), group == null ? null : new SessionView.Group(group.id, group.size));
     }
 
     // ------------------------------------------------------------------ the session thread
@@ -176,6 +192,7 @@ public class ReplaySession implements Runnable {
                 if (hasNext && !stopRequested() && item.sleepAfterMs.get() > 0) sleepBetweenItems(item);
             }
         } finally {
+            if (group != null && !arrivedAtGate) group.leave(); // ended early: don't hold the others back
             engine.finished(this);
         }
     }
@@ -282,6 +299,7 @@ public class ReplaySession implements Runnable {
             prefetchNext(index);
             ItemProgress itemProgress = new ItemProgress(loaded.script().durationNanos(), loaded.script().messageCount());
             progress.set(itemProgress);
+            if (index == 0 && group != null) awaitGroup(itemControl);
 
             ItemPlayer.play(loaded.script(), transport, itemControl, itemProgress, newState -> {
                 state.set(newState);
@@ -295,6 +313,14 @@ public class ReplaySession implements Runnable {
             engine.release(lockKey, this);
             Thread.interrupted();
         }
+    }
+
+    /** Ready to play: wait until every record started together with this one is ready too. */
+    private void awaitGroup(Control itemControl) {
+        state.set(EItemState.WAITING_FOR_GROUP);
+        engine.changed();
+        arrivedAtGate = true;
+        group.arriveAndAwait(itemControl);
     }
 
     /** Starts preparing the item after {@code index}, if any, while this one plays. */

@@ -182,8 +182,13 @@ through to the backend on port 8080.
 3. **Player**: find records by search, category, mode, tags or time. Then either:
    - **Play** a single record, giving its target IP:port (or the port to listen on).
    - **Add to playlist**, or open the playlist and use **Add records…**.
+   - **Play together**: tick the checkbox on up to 10 records, click **Play together**, and give
+     each one its target. They all start at the same moment; if any target can't be used, none of
+     them start.
 4. **Now Playing** (the bar at the bottom): live progress for every running replay. Click or drag
-   on the graph to jump. Stop a replay, or edit the upcoming items of a playlist.
+   on the graph to jump. Stop a replay, or edit the upcoming items of a playlist. Records played
+   together share one card: an **All** tab with everyone's progress, a tab per record with its
+   full live view, and **Stop all**.
 5. **History**: the last runs and how they ended.
 
 ---
@@ -501,6 +506,7 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
 | `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist) |
+| `POST /api/sessions/group` | play up to 10 records together (one replay each, common start, all or nothing) |
 | `POST /api/sessions/{id}/stop` | stop |
 | `POST /api/sessions/{id}/seek` | jump the current item to `positionUs` |
 | `PUT /api/sessions/{id}/upcoming` | replace a running playlist's upcoming items |
