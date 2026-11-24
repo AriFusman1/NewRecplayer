@@ -8,8 +8,15 @@ public record SessionView(String id, boolean playlist, String startedBy, long st
                           String state, int currentIndex, List<Item> items, Progress progress,
                           long sleepRemainingMs, List<LogLine> log, Group group) {
 
-    /** Set when the session was started with others ("Play together"); {@code size} counts all of them. */
-    public record Group(String id, int size) {
+    /**
+     * Set when the session was started with others ("Play together").
+     *
+     * @param size             how many records were started together
+     * @param tcpClients       how many of them are TCP clients (the group waits for them to connect)
+     * @param connectedClients how many of those are connected right now
+     * @param started          false while the group waits; true once all of them started playing
+     */
+    public record Group(String id, int size, int tcpClients, int connectedClients, boolean started) {
     }
 
     /** @param status PENDING | PLAYING | COMPLETED | FAILED | STOPPED */

@@ -4,8 +4,6 @@ import { MS_PER_SECOND } from './time';
 /** Port suggested for a new target. */
 export const DEFAULT_PORT = 5000;
 
-/** Most records that can be played together (the server enforces the same limit). */
-export const MAX_PLAY_TOGETHER = 10;
 
 export function portValid(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535;

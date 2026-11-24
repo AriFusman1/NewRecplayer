@@ -58,9 +58,15 @@ public class ReplaySession implements Runnable {
     private String firstLockKey;
     private Transport firstTransport;
 
-    /** Set when started together with other records; only the session thread touches arrivedAtGate. */
+    /** Set when started together with other records ("Play together"). */
     private ReplayGroup group;
-    private boolean arrivedAtGate;
+    /** How the first item ended (session thread only); the group needs it if that was before the start. */
+    private Outcome firstOutcome;
+    /** Set when the group ends this member before the start (timeout, or another member failed). */
+    private final AtomicReference<ReplayFailure> groupAbort = new AtomicReference<>();
+
+    /** While waiting for the group, re-check stop, disconnects and the start signal this often. */
+    private static final long GROUP_WAIT_SLICE_MS = 20;
 
     ReplaySession(ReplayEngine engine, boolean playlist, String startedBy, List<SessionItem> items) {
         this.engine = engine;
@@ -176,7 +182,8 @@ public class ReplaySession implements Runnable {
         }
         long sleepLeft = stateNow == EItemState.SLEEPING ? Math.max(0, sleepUntilMs.get() - System.currentTimeMillis()) : 0;
         return new SessionView(id, playlist, startedBy, startedAtMs, version, stateNow.name(), current, list, progressView,
-                sleepLeft, new ArrayList<>(log), group == null ? null : new SessionView.Group(group.id, group.size));
+                sleepLeft, new ArrayList<>(log), group == null ? null : new SessionView.Group(group.id, group.size,
+                        group.tcpClientCount(), group.connectedClients(), group.started()));
     }
 
     // ------------------------------------------------------------------ the session thread
@@ -192,7 +199,9 @@ public class ReplaySession implements Runnable {
                 if (hasNext && !stopRequested() && item.sleepAfterMs.get() > 0) sleepBetweenItems(item);
             }
         } finally {
-            if (group != null && !arrivedAtGate) group.leave(); // ended early: don't hold the others back
+            if (group != null && firstOutcome != null) {
+                group.memberEnded(this, stoppedBy.get(), firstOutcome.failure()); // no-op once the group has started
+            }
             engine.finished(this);
         }
     }
@@ -255,6 +264,8 @@ public class ReplaySession implements Runnable {
         Control itemControl = freshControl();
         String stopper = stoppedBy.get();
         if (stopper != null) itemControl.stop(stopper);
+        ReplayFailure abort = groupAbort.get();
+        if (abort != null) itemControl.fail(abort); // the group ended before this thread got here
         long started = System.currentTimeMillis();
         state.set(EItemState.PREPARING);
         progress.set(null);
@@ -262,13 +273,17 @@ public class ReplaySession implements Runnable {
         engine.changed();
 
         Outcome outcome = playScript(item, index, itemControl);
+        if (index == 0) firstOutcome = outcome;
 
         item.status.set(outcome.result());
         ReplayFailure failure = outcome.failure();
 
         if (failure != null) {
             log("error", failure.code(), failure.params());
-            engine.listener().notice("error", failure.code(), failure.params(), id, startedBy);
+            // a group failure is announced once for the whole group, not by every member
+            if (!failure.code().startsWith("GROUP_")) {
+                engine.listener().notice("error", failure.code(), failure.params(), id, startedBy);
+            }
         }
 
         int total = locked(() -> {
@@ -299,12 +314,12 @@ public class ReplaySession implements Runnable {
             prefetchNext(index);
             ItemProgress itemProgress = new ItemProgress(loaded.script().durationNanos(), loaded.script().messageCount());
             progress.set(itemProgress);
-            if (index == 0 && group != null) awaitGroup(itemControl);
+            boolean connected = index == 0 && group != null && waitForGroupStart(transport, itemControl);
 
             ItemPlayer.play(loaded.script(), transport, itemControl, itemProgress, newState -> {
                 state.set(newState);
                 engine.changed();
-            }, this::log);
+            }, this::log, connected);
             return Outcome.COMPLETED;
         } catch (RuntimeException e) {
             return outcomeOf(e, itemControl);
@@ -315,12 +330,63 @@ public class ReplaySession implements Runnable {
         }
     }
 
-    /** Ready to play: wait until every record started together with this one is ready too. */
-    private void awaitGroup(Control itemControl) {
-        state.set(EItemState.WAITING_FOR_GROUP);
+    /**
+     * The script is loaded: get ready and wait for the group's start signal. A TCP client first
+     * waits for its service to connect (and again if it disconnects before the start); any other
+     * member is ready at once.
+     *
+     * @return true if the transport is already connected (a TCP client)
+     */
+    private boolean waitForGroupStart(Transport transport, Control itemControl) {
+        TcpListenTransport tcpClient = transport instanceof TcpListenTransport listening ? listening : null;
+
+        if (tcpClient != null) {
+            tcpClient.failOnDisconnect(false);
+            connectForGroup(tcpClient, itemControl);
+        } else {
+            group.markReady(this);
+        }
+        setState(EItemState.WAITING_FOR_GROUP);
+
+        while (!group.waitForStart(GROUP_WAIT_SLICE_MS)) {
+            itemControl.checkAlive(); // Stop, or the group failed
+
+            if (tcpClient != null && tcpClient.peerLeft()) {
+                group.markNotReady(this);
+                log("warning", "LOG_GROUP_CLIENT_LEFT", Map.of());
+                tcpClient.closeConnection();
+                connectForGroup(tcpClient, itemControl);
+                setState(EItemState.WAITING_FOR_GROUP);
+            }
+        }
+
+        if (tcpClient != null) {
+            tcpClient.failOnDisconnect(true); // from now on a disconnect fails the replay, as usual
+            if (tcpClient.peerLeft()) {
+                throw new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", firstItem().target.port(), "reason", "closed by peer"),
+                        "Client disconnected just as the group started");
+            }
+        }
+        return tcpClient != null;
+    }
+
+    /** Waits until the service connects to our listening port, then counts this member as ready. */
+    private void connectForGroup(TcpListenTransport tcpClient, Control itemControl) {
+        setState(EItemState.WAITING_FOR_CONNECTION);
+        tcpClient.open(itemControl);
+        log("info", "LOG_CONNECTED", Map.of());
+        group.markReady(this);
+    }
+
+    private void setState(EItemState newState) {
+        state.set(newState);
         engine.changed();
-        arrivedAtGate = true;
-        group.arriveAndAwait(itemControl);
+    }
+
+    /** The group ended before it started (timeout, or another member failed): end this member too. */
+    void failFromGroup(ReplayFailure failure) {
+        groupAbort.set(failure);
+        control.get().fail(failure);
     }
 
     /** Starts preparing the item after {@code index}, if any, while this one plays. */

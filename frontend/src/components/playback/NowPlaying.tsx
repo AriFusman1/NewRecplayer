@@ -26,7 +26,7 @@ export function openNowPlaying() {
 /** Docked above the bottom navigation on every page; shows every running replay from everyone. */
 export function NowPlaying() {
   const { t } = useI18n();
-  const { sessions } = useLive();
+  const { sessions, usage } = useLive();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -45,8 +45,12 @@ export function NowPlaying() {
       <div className="now-bar" onClick={() => active && setOpen(!open)}>
         <div className={`eq${active ? '' : ' idle'}`}><span /><span /><span /></div>
         <strong>{t('now.title')}</strong>
-        {active ? <span className="badge ok">{t('now.count', { n: sessions.length })}</span>
-          : <span className="muted small">{t('now.empty')}</span>}
+        {usage.max > 0 && (
+          <span className={`badge ${usage.active >= usage.max ? 'warn' : active ? 'ok' : 'neutral'}`} title={t('usage.hint')}>
+            {t('usage.inUse', { active: usage.active, max: usage.max })}
+          </span>
+        )}
+        {!active && <span className="muted small">{t('now.empty')}</span>}
         <div className="now-strip">
           {!open && entries.map((entry) => (entry.group
             ? <GroupPill key={entry.group.id} sessions={entry.sessions} />
@@ -149,6 +153,8 @@ function GroupCard({ size, sessions }: { size: number; sessions: Session[] }) {
   const [confirm, setConfirm] = useState(false);
   const shown = sessions.find((session) => session.id === tab);
   const activeTab = shown ? tab : ALL_TAB; // the chosen member may have finished
+  const group = sessions[0].group; // the latest counts, as sent with every member
+  const waitingForClients = !!group && !group.started && group.tcpClients > 0;
 
   const stopAll = () => {
     setConfirm(false);
@@ -167,6 +173,13 @@ function GroupCard({ size, sessions }: { size: number; sessions: Session[] }) {
         </div>
         <button className="btn danger sm" onClick={() => setConfirm(true)}><Icon name="stop" size={12} />{t('together.stopAll')}</button>
       </div>
+
+      {waitingForClients && (
+        <div className="waiting">
+          <span className="spinner" />
+          {t('together.waitingClients', { n: group.connectedClients, m: group.tcpClients })}
+        </div>
+      )}
 
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={activeTab === ALL_TAB} className={`tab${activeTab === ALL_TAB ? ' active' : ''}`}
@@ -220,13 +233,22 @@ function GroupRow({ session, onOpen }: { session: Session; onOpen: () => void })
             </div>
           </>
         ) : (
-          <span className={`badge ${playing ? 'ok' : 'warn'}`} style={{ alignSelf: 'flex-start' }}>
-            {session.state !== 'PLAYING' && <span className="spinner" style={{ width: 11, height: 11 }} />}{stateText(session, t)}
-          </span>
+          clientConnected(session) ? (
+            <span className="badge ok" style={{ alignSelf: 'flex-start' }}><Icon name="check" size={12} />{t('together.connected')}</span>
+          ) : (
+            <span className={`badge ${playing ? 'ok' : 'warn'}`} style={{ alignSelf: 'flex-start' }}>
+              {session.state !== 'PLAYING' && <span className="spinner" style={{ width: 11, height: 11 }} />}{stateText(session, t)}
+            </span>
+          )
         )}
       </div>
     </button>
   );
+}
+
+/** A TCP client in a group that is waiting: its service is connected, it waits for the others. */
+function clientConnected(session: Session): boolean {
+  return current(session)?.mode === 'TCP_CLIENT' && session.state === 'WAITING_FOR_GROUP';
 }
 
 function SessionCard({ session, embedded = false }: { session: Session; embedded?: boolean }) {

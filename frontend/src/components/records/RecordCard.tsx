@@ -5,7 +5,6 @@ import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { useAction, useFeedback } from '../../state/feedback';
 import { usePlaylist } from '../../state/playlist';
-import { MAX_PLAY_TOGETHER } from '../../util/target';
 import { formatBytes, formatDuration, formatMs, formatNumber, formatUs } from '../../util/time';
 import { ModeBadge, Warnings } from '../common/Badges';
 import { MiniBars } from '../graphs/BarGraph';
@@ -57,7 +56,7 @@ export const RecordCard = memo(function RecordCard({ record, selected = false, c
         </div>
         {onToggleSelect && (
           <label className={`select-box${canSelect || selected ? '' : ' disabled'}`}
-            title={canSelect || selected ? t('select.toggle') : t('select.limit', { max: MAX_PLAY_TOGETHER })}>
+            title={canSelect || selected ? t('select.toggle') : t('select.full')}>
             <input type="checkbox" checked={selected} disabled={!canSelect && !selected}
               onChange={() => onToggleSelect(record.id)} aria-label={t('select.toggle')} />
           </label>

@@ -3,12 +3,12 @@ import { MODES, type Mode } from '../../api/types';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { usePlaylist } from '../../state/playlist';
+import { useLive } from '../../state/live';
 import { Icon } from '../../components/common/Icon';
 import { PlaylistDrawer } from '../../components/playlist/PlaylistDrawer';
 import { PlayTogetherDialog } from '../../components/playback/PlayTogetherDialog';
 import { RecordCard } from '../../components/records/RecordCard';
 import { toggleIn } from '../../util/list';
-import { MAX_PLAY_TOGETHER } from '../../util/target';
 import { matchesQuery, tagsForCategory } from '../../util/records';
 import { msToUs, parseMs } from '../../util/time';
 import { Link } from 'react-router-dom';
@@ -28,13 +28,20 @@ export function PlayerPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [playTogether, setPlayTogether] = useState(false);
 
+  // The server allows `usage.max` replays at once for everyone together, so no more can be selected,
+  // and starting needs that many free slots. The server checks again when Play is pressed.
+  const { usage } = useLive();
+  const selectLimit = usage.max > 0 ? usage.max : Infinity; // no limit known before the first update
+  const freeSlots = Math.max(0, usage.max - usage.active);
+
   // in the order they were picked; a record deleted meanwhile simply drops out
   const selected = selectedIds.flatMap((id) => recordById.get(id) ?? []);
-  const selectionFull = selected.length >= MAX_PLAY_TOGETHER;
+  const selectionFull = selected.length >= selectLimit;
+  const notEnoughRoom = usage.max > 0 && selected.length > freeSlots;
   const toggleSelected = useCallback((recordId: string) => setSelectedIds((ids) => {
     if (ids.includes(recordId)) return ids.filter((id) => id !== recordId);
-    return ids.length >= MAX_PLAY_TOGETHER ? ids : [...ids, recordId];
-  }), []);
+    return ids.length >= selectLimit ? ids : [...ids, recordId];
+  }), [selectLimit]);
   const clearSelection = useCallback(() => setSelectedIds([]), []);
 
   const fromUs = from ? msToUs(parseMs(from) ?? NaN) : null;
@@ -117,10 +124,12 @@ export function PlayerPage() {
 
       {selected.length > 0 && (
         <div className="select-bar">
-          <span className="badge neutral">{t('select.count', { n: selected.length, max: MAX_PLAY_TOGETHER })}</span>
-          {selectionFull && <span className="small muted">{t('select.limit', { max: MAX_PLAY_TOGETHER })}</span>}
+          <span className="badge neutral">{t('select.count', { n: selected.length })}</span>
+          {notEnoughRoom
+            ? <span className="small" style={{ color: 'var(--warning)' }}>{t('select.noRoom', { free: freeSlots, n: selected.length })}</span>
+            : selectionFull && <span className="small muted">{t('select.limit', { max: usage.max })}</span>}
           <button className="btn ghost sm" onClick={clearSelection}>{t('select.clear')}</button>
-          <button className="btn primary" onClick={() => setPlayTogether(true)}>
+          <button className="btn primary" disabled={notEnoughRoom} onClick={() => setPlayTogether(true)}>
             <Icon name="play" size={12} />{t('select.playTogether', { n: selected.length })}
           </button>
         </div>

@@ -18,7 +18,8 @@ import java.util.function.Consumer;
 /**
  * Plain WebSocket fan-out at {@code /ws}. Server → client JSON messages:
  * <ul>
- *   <li>{@code {type:"sessions", sessions:[...]}} — on change and every 200 ms while anything plays</li>
+ *   <li>{@code {type:"sessions", sessions:[...], active, max}} — on change and every 200 ms while anything
+ *       plays; {@code active}/{@code max} is the global limit on running replays</li>
  *   <li>{@code {type:"notice", level, code, params, sessionId, startedBy}} — popups</li>
  *   <li>{@code {type:"catalog"}} / {@code {type:"history"}} — refetch hints</li>
  * </ul>
@@ -62,7 +63,9 @@ public class LiveHub implements ReplayListener {
     }
 
     private String sessionsMessage() {
-        return Json.string(Map.of("type", "sessions", "sessions", engine.get().views()));
+        ReplayEngine replays = engine.get();
+        return Json.string(Map.of("type", "sessions", "sessions", replays.views(),
+                "active", replays.activeReplays(), "max", replays.maxActiveReplays()));
     }
 
     private void broadcast(String text) {

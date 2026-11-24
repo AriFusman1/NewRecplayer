@@ -38,6 +38,10 @@ upload:
 
 replay:
   connect-timeout-ms: 5000
+  # replays running at the same time, for all users together (waiting for a connection counts)
+  max-active-replays: 10
+  # records played together that include TCP clients wait this long for all of them to connect
+  group-connect-timeout-ms: 300000
 
 extraction:
   fragment-timeout-ms: 30000

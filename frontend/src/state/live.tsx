@@ -1,12 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { connectLive } from '../api/live';
-import type { Session } from '../api/types';
+import type { Session, Usage } from '../api/types';
 import { useI18n } from '../i18n';
 import { useFeedback } from './feedback';
 import { useNickname } from './nickname';
 
 interface LiveState {
   sessions: Session[];
+  /** Replays running now on the server, for all users, out of the maximum allowed. */
+  usage: Usage;
   connected: boolean;
   /** Increments whenever the history changes on the server. */
   historySignal: number;
@@ -20,6 +22,7 @@ const Ctx = createContext<LiveState | null>(null);
  */
 export function LiveProvider({ children, onCatalogChange }: { children: ReactNode; onCatalogChange: () => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [usage, setUsage] = useState<Usage>({ active: 0, max: 0 });
   const [connected, setConnected] = useState(false);
   const [historySignal, setHistorySignal] = useState(0);
   const { t, tc } = useI18n();
@@ -35,6 +38,7 @@ export function LiveProvider({ children, onCatalogChange }: { children: ReactNod
     switch (message.type) {
       case 'sessions':
         setSessions(message.sessions);
+        setUsage({ active: message.active, max: message.max });
         break;
       case 'catalog':
         latest.onCatalogChange();
@@ -55,7 +59,7 @@ export function LiveProvider({ children, onCatalogChange }: { children: ReactNod
     if (isConnected) helpers.current.onCatalogChange(); // resync after reconnect
   }), []);
 
-  const value = useMemo(() => ({ sessions, connected, historySignal }), [sessions, connected, historySignal]);
+  const value = useMemo(() => ({ sessions, usage, connected, historySignal }), [sessions, usage, connected, historySignal]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

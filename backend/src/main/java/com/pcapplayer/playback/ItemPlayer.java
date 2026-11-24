@@ -28,13 +28,21 @@ public final class ItemPlayer {
 
     static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
                      Consumer<EItemState> state, Log log) {
-        state.accept(transport.waitsForPeer() ? EItemState.WAITING_FOR_CONNECTION : EItemState.CONNECTING);
-        transport.open(control);
+        play(script, transport, control, progress, state, log, false);
+    }
+
+    /** @param alreadyOpen the transport is connected already (a TCP client that connected while its group waited) */
+    static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
+                     Consumer<EItemState> state, Log log, boolean alreadyOpen) {
+        if (!alreadyOpen) {
+            state.accept(transport.waitsForPeer() ? EItemState.WAITING_FOR_CONNECTION : EItemState.CONNECTING);
+            transport.open(control);
+        }
         control.takeSeek(); // a jump requested before playback started has nothing to apply to
         long zeroNanos = System.nanoTime();
         progress.start(zeroNanos);
         state.accept(EItemState.PLAYING);
-        log.log("info", "LOG_CONNECTED", Map.of());
+        if (!alreadyOpen) log.log("info", "LOG_CONNECTED", Map.of()); // else logged when it connected
 
         List<ScriptStep> steps = script.steps();
         int i = 0;

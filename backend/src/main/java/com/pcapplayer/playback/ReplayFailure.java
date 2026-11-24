@@ -15,7 +15,7 @@ import java.util.Set;
  */
 public class ReplayFailure extends ApiException {
 
-    private static final Set<String> CONFLICT_CODES = Set.of("TARGET_BUSY", "LISTEN_FAILED", "DUPLICATE_TARGET");
+    private static final Set<String> CONFLICT_CODES = Set.of("TARGET_BUSY", "LISTEN_FAILED", "DUPLICATE_TARGET", "ACTIVE_LIMIT");
     private static final Set<String> NOT_FOUND_CODES = Set.of("SESSION_NOT_FOUND", "RECORD_NOT_FOUND");
 
     public ReplayFailure(String code, Map<String, Object> params, String message) {

@@ -21,6 +21,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
 
 /**
@@ -29,7 +31,11 @@ import java.util.concurrent.Executors;
  */
 public class ReplayEngine {
 
-    public record Settings(int connectTimeoutMs) {
+    /**
+     * @param maxActiveReplays      replays running at once, all users together
+     * @param groupConnectTimeoutMs how long a group waits for its TCP clients to connect
+     */
+    public record Settings(int connectTimeoutMs, int maxActiveReplays, long groupConnectTimeoutMs) {
     }
 
     private static final int PREFETCH_THREADS = 2;
@@ -43,6 +49,16 @@ public class ReplayEngine {
     private final ConcurrentMap<String, ReplaySession> locks = new ConcurrentHashMap<>();
 
     /** Low-priority threads that prepare upcoming playlist items ahead of time (warming the script cache). */
+    /** The global limit; a slot is taken when a replay starts and given back in {@link #finished}. */
+    private final ActiveReplays activeReplays;
+
+    /** Fires group connect timeouts. */
+    private final ScheduledExecutorService timers = Executors.newSingleThreadScheduledExecutor(task -> {
+        Thread thread = new Thread(task, "replay-group-timeouts");
+        thread.setDaemon(true);
+        return thread;
+    });
+
     private final ExecutorService prefetcher = Executors.newFixedThreadPool(PREFETCH_THREADS, task -> {
         Thread thread = new Thread(task, "replay-prefetch");
         thread.setDaemon(true);
@@ -54,6 +70,7 @@ public class ReplayEngine {
         this.source = source;
         this.listener = listener;
         this.settings = settings;
+        this.activeReplays = new ActiveReplays(settings.maxActiveReplays());
         NetWarmup.run();
     }
 
@@ -78,23 +95,29 @@ public class ReplayEngine {
     public SessionView start(List<ItemRequest> requests, boolean playlist, String startedBy) {
         if (requests.isEmpty()) throw new ReplayFailure("EMPTY_PLAYLIST", Map.of(), "Nothing to play");
         ReplaySession session = new ReplaySession(this, playlist, startedBy, toItems(requests));
-        reserveFirstItem(session);
+        activeReplays.take(1); // a playlist plays one item at a time, so it takes one slot
+
+        try {
+            reserveFirstItem(session);
+        } catch (RuntimeException e) {
+            activeReplays.release(1);
+            throw e;
+        }
         launch(session);
         return session.view();
     }
 
     /**
-     * "Play together": one single replay per request, all starting at the same moment. Every
-     * target is reserved first; if any of them cannot be, nothing starts and the error names the
-     * record ({@code params.record}).
+     * "Play together": one single replay per request, all starting at the same moment. When some of
+     * them are TCP clients, nothing plays until every one of those has been connected to (see
+     * {@link ReplayGroup}). Slots and targets are taken for all of them first; if any cannot be,
+     * nothing starts, and a target error names the record ({@code params.record}).
      *
-     * @throws ReplayFailure GROUP_SIZE, DUPLICATE_TARGET, TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET
+     * @throws ReplayFailure ACTIVE_LIMIT, DUPLICATE_TARGET, TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET
      */
     public List<SessionView> startGroup(List<ItemRequest> requests, String startedBy) {
-        if (requests.isEmpty() || requests.size() > ReplayGroup.MAX_SIZE) {
-            throw new ReplayFailure("GROUP_SIZE", Map.of("max", ReplayGroup.MAX_SIZE),
-                    "Choose between 1 and " + ReplayGroup.MAX_SIZE + " records to play together");
-        }
+        if (requests.isEmpty()) throw new ReplayFailure("EMPTY_PLAYLIST", Map.of(), "Nothing to play");
+        activeReplays.take(requests.size()); // all or nothing
         List<ReplaySession> members = new ArrayList<>();
         Set<String> targets = new HashSet<>();
 
@@ -117,12 +140,33 @@ public class ReplayEngine {
             }
         } catch (RuntimeException e) {
             members.forEach(ReplaySession::releasePreAcquired); // all or nothing
+            activeReplays.release(requests.size());
             throw e;
         }
-        ReplayGroup group = new ReplayGroup(members.size());
+        ReplayGroup group = new ReplayGroup(members);
         members.forEach(session -> session.joinGroup(group));
+        if (group.hasTcpClients()) scheduleConnectTimeout(group, startedBy, members.get(0).id);
         members.forEach(this::launch);
         return members.stream().map(ReplaySession::view).toList();
+    }
+
+    /** If the group is still waiting for its TCP clients when the timeout expires, it fails (announced once). */
+    private void scheduleConnectTimeout(ReplayGroup group, String startedBy, String sessionId) {
+        long timeoutMs = settings.groupConnectTimeoutMs();
+        timers.schedule(() -> {
+            ReplayFailure timedOut = group.timeOut(timeoutMs);
+            if (timedOut != null) listener.notice("error", timedOut.code(), timedOut.params(), sessionId, startedBy);
+        }, timeoutMs, TimeUnit.MILLISECONDS);
+    }
+
+    /** Replays running now (all users), including those waiting for a connection. */
+    public int activeReplays() {
+        return activeReplays.active();
+    }
+
+    /** The configured limit for {@link #activeReplays()}. */
+    public int maxActiveReplays() {
+        return activeReplays.max();
     }
 
     /** Reserves the first item's target (and binds its listen port for TCP_CLIENT) for {@code session}. */
@@ -270,9 +314,11 @@ public class ReplayEngine {
         listener.sessionsChanged();
     }
 
+    /** Every launched session ends here exactly once (its thread's finally), whatever the reason. */
     void finished(ReplaySession session) {
         sessions.remove(session.id);
         locks.values().removeIf(holder -> holder == session);
+        activeReplays.release(1);
         changed();
     }
 }

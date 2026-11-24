@@ -169,6 +169,17 @@ export type SessionState = 'PREPARING' | 'WAITING_FOR_GROUP' | 'CONNECTING' | 'W
 export interface SessionGroup {
   id: string;
   size: number;
+  /** How many members are TCP clients: the group waits until all of them are connected. */
+  tcpClients: number;
+  connectedClients: number;
+  /** False while waiting; true once every member started playing. */
+  started: boolean;
+}
+
+/** The global limit on running replays (all users together). */
+export interface Usage {
+  active: number;
+  max: number;
 }
 
 export interface Session {

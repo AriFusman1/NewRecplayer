@@ -182,9 +182,15 @@ through to the backend on port 8080.
 3. **Player**: find records by search, category, mode, tags or time. Then either:
    - **Play** a single record, giving its target IP:port (or the port to listen on).
    - **Add to playlist**, or open the playlist and use **Add records…**.
-   - **Play together**: tick the checkbox on up to 10 records, click **Play together**, and give
+   - **Play together**: tick the checkbox on several records, click **Play together**, and give
      each one its target. They all start at the same moment; if any target can't be used, none of
-     them start.
+     them start. If some of them are **TCP clients**, nothing plays until every one of those
+     services has connected ("Waiting for connection: 1/3 TCP clients connected"); then all of them
+     start together. A client that disconnects before the start is waited for again. Stop, a failed
+     record, or the connect timeout (`replay.group-connect-timeout-ms`) ends the whole group.
+   - **Limit**: at most `replay.max-active-replays` (default 10) replays run at once, for all users
+     together; a replay waiting for a connection counts. Now Playing shows "7/10 in use", and a
+     start that does not fit is refused as a whole ("There are 3 free slots and you tried to start 5").
 4. **Now Playing** (the bar at the bottom): live progress for every running replay. Click or drag
    on the graph to jump. Stop a replay, or edit the upcoming items of a playlist. Records played
    together share one card: an **All** tab with everyone's progress, a tab per record with its
@@ -244,6 +250,8 @@ All keys:
 | cache.max-bytes | CACHE_MAX_BYTES | 2 GiB | local disk cache of pcap files fetched from S3 |
 | upload.expire-minutes | UPLOAD_EXPIRE_MINUTES | 120 | an uploaded but unsaved file is discarded after this |
 | replay.connect-timeout-ms | REPLAY_CONNECT_TIMEOUT_MS | 5000 | TCP server mode connect timeout |
+| replay.max-active-replays | REPLAY_MAX_ACTIVE_REPLAYS | 10 | replays running at once, all users together (waiting ones count) |
+| replay.group-connect-timeout-ms | REPLAY_GROUP_CONNECT_TIMEOUT_MS | 300000 | records played together wait this long for all TCP clients to connect |
 | extraction.fragment-timeout-ms | EXTRACTION_FRAGMENT_TIMEOUT_MS | 30000 | incomplete IPv4 fragment sets are dropped after this |
 | extraction.tcp-gap-timeout-ms | EXTRACTION_TCP_GAP_TIMEOUT_MS | 2000 | a TCP hole not covered by an ACK becomes a gap after this |
 | extraction.udp-duplicate-window-ms | EXTRACTION_UDP_DUPLICATE_WINDOW_MS | 5 | identical UDP datagrams within this window count once |
@@ -506,13 +514,14 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
 | `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist) |
-| `POST /api/sessions/group` | play up to 10 records together (one replay each, common start, all or nothing) |
+| `POST /api/sessions/group` | play records together (one replay each, common start, all or nothing; waits for TCP clients) |
 | `POST /api/sessions/{id}/stop` | stop |
 | `POST /api/sessions/{id}/seek` | jump the current item to `positionUs` |
 | `PUT /api/sessions/{id}/upcoming` | replace a running playlist's upcoming items |
 | `GET /health/live`, `GET /health/ready` | probes |
 
-WebSocket `/ws` (server → client): `sessions` (on every change and 5 times a second while playing),
+WebSocket `/ws` (server → client): `sessions` (on every change and 5 times a second while playing,
+with `active`/`max` for the global limit),
 `notice` (failure popups), `catalog` and `history` (hints to refetch).
 
 ---
