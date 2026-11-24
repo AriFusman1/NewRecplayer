@@ -337,6 +337,9 @@ backend/                          Maven project; all versions pinned in pom.xml 
       decode/              script → messages: ScriptDecoder, FlowFramer (per-flow message reassembly),
                            MessageDecoder (bytes → field values and positions), DecodedMessage, DecodeStats
       analysis/            MessageAnalyzer (consumer of decoded messages), MessageCountAnalyzer, DecodeReport
+      timefix/             time fixing: ETimeKind, TimeCodec (value ↔ instant), TimeAnchoring, FieldWriter,
+                           TimeFixPlanner (decoded messages + profile → PatchPlan), MessagePatch, StepCopies
+      profile/             TimeFixProfile: per category, the base field and fields to fix of each message
       versions/            one sub-package per ICD version written in Java
     recordManagement/
       service/             business rules: RecordService (preview, create, edit, delete), TaxonomyService
@@ -371,7 +374,8 @@ frontend/src/
   util/                    plain functions: time (date-fns), targets, record filters, browser storage
   i18n/                    i18next setup plus en.ts and he.ts (Hebrew must have every English key, or it does not compile)
 
-docs/                             icd-json-format.md (ICD format), time-fix-plan.md (design of time fixing)
+docs/                             icd-json-format.md (ICD format), time-fix.md (time kinds and formulas),
+                                  time-fix-plan.md (design of time fixing)
 config/application.example.yml    template for your configuration (S3 address and secrets)
 tools/gen_samples.py              generates test captures with known expected output
 Dockerfile, docker-compose.yml
