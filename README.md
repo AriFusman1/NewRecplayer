@@ -393,9 +393,9 @@ Dockerfile, docker-compose.yml
 - **A UI string**: add the key to `i18n/en.ts` and `i18n/he.ts`. Placeholders are written `{name}`.
 - **A server error or warning**: use a new `code`, then add `err.<CODE>` / `warn.<CODE>` to both
   dictionaries.
-- **A storage backend**: implement `storage/BlobStore`.
-- **A link type**: one case in `pcap/decode/LinkDecoder`.
-- **An endpoint**: add a method to the right service, a route in the matching `api/*Routes`, and a
+- **A storage backend**: implement `persistence/BlobStore`.
+- **A link type**: one case in `pcapProcessing/decode/LinkDecoder`.
+- **An endpoint**: add a method to the right service, a route in the matching `web/routes/*Routes` class, and a
   function in `frontend/src/api/client.ts`.
 
 ---
