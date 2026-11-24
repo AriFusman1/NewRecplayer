@@ -329,6 +329,11 @@ backend/                          Maven project; all versions pinned in pom.xml 
       extract/             packets → replay script: MessageExtractor, its filter/settings/result, CachingExtractor
       script/              the replay script itself: ReplayScript, ScriptStep, EConnectionMode, Histogram
       diagnostics/         Warning: problems found in a capture (truncation, gaps, duplicates, ...)
+    icd/                   ICDs (interface control documents) for decoding messages; see docs/icd-json-format.md
+      model/               the format-agnostic model: IcdDefinition, HeaderDef, MessageDef, FieldDef, ...
+      annotations/         @Icd, @IcdMessage, @IcdField, ... for ICDs written as Java classes
+      loading/             AnnotationIcdLoader, JsonIcdLoader, IcdModelValidator (rules shared by both), BuiltInIcds
+      versions/            one sub-package per ICD version written in Java
     recordManagement/
       service/             business rules: RecordService (preview, create, edit, delete), TaxonomyService
                            (categories, tags), PlaylistService, RecordScriptSource (records → replay
@@ -362,6 +367,7 @@ frontend/src/
   util/                    plain functions: time (date-fns), targets, record filters, browser storage
   i18n/                    i18next setup plus en.ts and he.ts (Hebrew must have every English key, or it does not compile)
 
+docs/                             icd-json-format.md (ICD format), time-fix-plan.md (design of time fixing)
 config/application.example.yml    template for your configuration (S3 address and secrets)
 tools/gen_samples.py              generates test captures with known expected output
 Dockerfile, docker-compose.yml
@@ -395,6 +401,8 @@ Dockerfile, docker-compose.yml
   dictionaries.
 - **A storage backend**: implement `persistence/BlobStore`.
 - **A link type**: one case in `pcapProcessing/decode/LinkDecoder`.
+- **An ICD**: write it in JSON ([format](docs/icd-json-format.md)), or as annotated Java classes in
+  `icd/versions/<version>/` with the holder class listed in `icd/loading/BuiltInIcds`.
 - **An endpoint**: add a method to the right service, a route in the matching `web/routes/*Routes` class, and a
   function in `frontend/src/api/client.ts`.
 

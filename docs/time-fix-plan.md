@@ -1,6 +1,20 @@
 # Plan: ICD message parsing and time-field fixing during playback
 
-Status: **draft, waiting for approval.** Nothing has been implemented yet.
+Status: **approved, in progress.** Decisions from the review are in section 0.
+
+## 0. Decisions after review
+
+| # | Decision |
+|---|---|
+| Q1 | No runtime schema-validation library. `icd.schema.json` is shipped for editors; `JsonIcdLoader` checks the ICD file itself and reports JSON paths. The pcap is decoded with the loaded ICD (the schema is not involved in decoding). |
+| Q2 | Several categories may use the same ICD version; each category still has its own profile. |
+| Q3 | UDP messages can be fragmented across datagrams: UDP uses the same per-flow stream framing as TCP. No per-ICD boundary option. |
+| Q4 | Decode the whole record during `prepare` (section 6.2). |
+| Q5 | If a seek lands in the middle of a message, the rest of that message is patched using the time of its first part that is actually sent. |
+| Q6 | A field inside an array is chosen once on the element structure (`targets[*].pos.time`) and is fixed the same way in every element; the offset is computed per element. |
+| Q7 | The sample ICD exists for the unit tests only; the same ICD in JSON is the full example in `docs/icd-json-format.md`. |
+| Q8 | No shared default. Each message type has its own base field, anywhere in the message (header or body). |
+
 
 This plan describes how the feature in the request fits into the code as it is today. It also lists the decisions
 I made where the request leaves room, and the questions I need answered (section 9).
