@@ -16,6 +16,15 @@ replies from the service are read and discarded.
   client mode). A live graph shows progress; **click or drag on it to jump** to another moment.
 - **Playlists**: several records in order, with a pause between them. Pick records from a list,
   then reorder by dragging. **Save playlists by name**; everyone can load and play them.
+- **Play together**: select 2 or more records and start them at the same moment, each to its own
+  target. If some of them are TCP clients, nothing plays until all of those services have
+  connected; then everything starts together. All or nothing: if one target can't be used, none
+  start.
+- **Global limit**: at most 10 replays (configurable) run at once, for all users together.
+- **Now playing tab**: every running replay, live; replays started together share one card with a
+  tab per record. Leaving the tab doesn't stop anything.
+- **History**: the last runs, with a filter under each column (text with suggestions, a calendar
+  for times, number ranges); filtered views live in the URL and can be shared.
 - **Remembers your targets**: each record pre-fills the IP and port it was last played to, and
   IP fields suggest your recent IPs. This is stored in your browser only.
 - **Shared**: everyone sees every running replay live and can stop it or edit upcoming items.
@@ -28,6 +37,7 @@ database), shipped as one Docker image (OpenShift-friendly).
 
 ## Contents
 
+- [Setting up a new computer](#setting-up-a-new-computer)
 - [Quick start](#quick-start)
 - [Using it](#using-it)
 - [Configuration](#configuration)
@@ -37,6 +47,64 @@ database), shipped as one Docker image (OpenShift-friendly).
 - [API](#api)
 - [Testing](#testing)
 - [Dependencies](#dependencies)
+
+---
+
+## Setting up a new computer
+
+**1. Install the tools** (once):
+
+| Tool | Version | macOS | Windows |
+|---|---|---|---|
+| Git | any recent | built in (Xcode command-line tools) | [git-scm.com](https://git-scm.com) |
+| JDK | 17 | [Temurin 17 .pkg](https://adoptium.net/temurin/releases/?version=17) | Temurin 17 .msi |
+| Maven | 3.9 | [download](https://maven.apache.org/download.cgi) the `-bin.tar.gz`, unpack it to `~/tools/` and add its `bin` to `PATH` | the `-bin.zip`, add `bin` to `PATH` |
+| Node.js | 20 | [nodejs.org](https://nodejs.org/en/download) .pkg (choose v20) | .msi (v20) |
+| libpcap | — | built in | [Npcap](https://npcap.com) |
+
+Check with `java -version`, `mvn -v` and `node -v`.
+
+**2. Get the code.** The current work is on the `yahali` branch (until it is merged into `main`):
+
+```bash
+git clone https://github.com/AriFusman1/NewRecplayer.git
+cd NewRecplayer
+git checkout yahali
+```
+
+**3. Signing in to GitHub (for `git push`).** When git asks for a password, GitHub does not accept
+your account password: give a **personal access token** (github.com → Settings → Developer settings
+→ Personal access tokens → Tokens (classic), with the `repo` scope). The operating system saves it
+after the first push. Tokens expire (30 days by default): when a push says "Invalid username or
+token", create a new token and push again. An SSH key avoids this.
+
+**4. Build and run**: see [Option B](#option-b-run-on-your-machine) below. For daily work:
+
+| You changed | Do |
+|---|---|
+| frontend code (`frontend/src`) | nothing: with `npm run dev` ([Option C](#option-c-frontend-development-hot-reload)) the page updates on save |
+| backend code (`backend/src`) | stop the backend (Ctrl-C), `cd backend && mvn -q package -DskipTests`, start it again |
+| configuration | restart the backend |
+
+Don't rebuild the jar while the backend is running from it: replacing the file under a running Java
+process can make it fail. Stop it first.
+
+**5. Your data does not travel with the code.** With `STORAGE_TYPE=filesystem`, records, uploaded
+captures and history are kept in `/tmp/pcap-player/store` on *that* computer. They are not in git,
+and **macOS empties `/tmp` when it restarts**. To keep them, choose a folder of your own:
+
+```bash
+STORAGE_TYPE=filesystem STORAGE_FILESYSTEM_ROOT=$HOME/pcap-player-data java -jar backend/target/pcap-player.jar
+```
+
+To move them to another computer, copy that folder. With S3 storage the data is in the bucket and
+every computer sees the same records.
+
+**6. Known macOS limitation.** Apple's built-in libpcap (1.10.1) rejects pcapng files whose
+interface records a snaplen of 0. Four unit tests use such files, so on macOS `mvn package` fails
+in those tests: build with `-DskipTests` there, and run the full test suite on Linux or in Docker.
+Real captures from dumpcap record a snaplen and read fine. Separately, pcapng files that mix link
+types (for example Ethernet and Linux SLL2 interfaces in one file) are refused on every platform.
 
 ---
 
@@ -543,7 +611,9 @@ Frontend unit tests are `src/**/*.test.ts`; `npm test` compiles them with `tscon
 them with `node --test`. They cover the History filters (`src/util/historyFilters.ts`) and the
 calendar arithmetic (`src/util/dateRange.ts`).
 
-Tests that read real capture files need libpcap; they are skipped when it is missing.
+Tests that read real capture files need libpcap; they are skipped when it is missing. On macOS
+four pcapng tests fail because of Apple's libpcap (see
+[Setting up a new computer](#setting-up-a-new-computer), step 6); everything else passes.
 
 `tools/gen_samples.py OUT_DIR` (Python 3, standard library only) writes test captures plus
 `expected.json`, which describes exactly what must be replayed. The captures cover:
