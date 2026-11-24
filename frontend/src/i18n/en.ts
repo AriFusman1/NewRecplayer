@@ -81,6 +81,9 @@ export const en = {
   'live.clock': 'Recording time',
   'live.messages': 'Messages',
   'live.bytes': 'Sent',
+  'live.missed': 'Not delivered',
+  'live.missedShort': '{n} not delivered',
+  'live.missedHint': 'Messages due while there was no connection to the target (the replay kept playing and retrying)',
   'live.log': 'Log',
   'live.seekHint': 'Click or drag on the graph to jump',
 
@@ -368,6 +371,8 @@ export const en = {
   'notice.CLIENT_DISCONNECTED': 'Client disconnected',
 
   'log.LOG_CONNECTED': 'Connected',
+  'log.LOG_NOT_CONNECTED_RETRYING': 'Cannot connect to {target} ({reason}) — playing anyway; retrying every {seconds} s',
+  'log.LOG_CONNECTION_LOST_RETRYING': 'The connection to {target} dropped ({reason}) — still playing; retrying every {seconds} s',
   'log.LOG_GROUP_CLIENT_LEFT': 'The client disconnected before the start — waiting for it to connect again',
   'log.LOG_RECORDED_CLOSE': 'Connection closed as recorded — reconnecting',
   'log.LOG_GAP': 'Skipped a capture gap of {bytes} bytes at +{offsetMs} ms',

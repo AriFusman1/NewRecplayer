@@ -646,3 +646,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .filter-row .dtf-input.filled { font-size: 12px; }
 .filter-row .dtf-toggle { width: 24px; height: 22px; }
 
+/* messages a TCP server replay could not deliver (no connection at the time) */
+.missed { color: var(--warning); }
+

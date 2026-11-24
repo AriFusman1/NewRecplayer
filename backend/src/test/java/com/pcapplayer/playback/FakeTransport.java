@@ -13,7 +13,7 @@ final class FakeTransport implements Transport {
     final AtomicInteger reopens = new AtomicInteger();
 
     @Override public void open(Control control) { }
-    @Override public void send(byte[] data, Control control) { sent.add((int) data[0]); }
+    @Override public boolean send(byte[] data, Control control) { sent.add((int) data[0]); return true; }
     @Override public void closeConnection() { }
     @Override public void reopen(Control control) { reopens.incrementAndGet(); }
     @Override public boolean waitsForPeer() { return false; }

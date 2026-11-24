@@ -25,7 +25,8 @@ public record SessionView(String id, boolean playlist, String startedBy, long st
     }
 
     /** Progress of the current item; null while preparing or sleeping. */
-    public record Progress(long rangeStartUs, long durationUs, long positionUs, long sentMessages,
+    /** @param missedMessages not delivered because a keep-trying TCP replay had no connection at the time */
+    public record Progress(long rangeStartUs, long durationUs, long positionUs, long sentMessages, long missedMessages,
                            long totalMessages, long sentBytes, long binUs, long[] histogram) {
     }
 

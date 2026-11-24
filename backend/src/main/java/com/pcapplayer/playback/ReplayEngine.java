@@ -34,8 +34,11 @@ public class ReplayEngine {
     /**
      * @param maxActiveReplays      replays running at once, all users together
      * @param groupConnectTimeoutMs how long a group waits for its TCP clients to connect
+     * @param tcpKeepTrying         TCP-server replays play without a connection and keep retrying it
+     * @param tcpRetryIntervalMs    the retry interval
      */
-    public record Settings(int connectTimeoutMs, int maxActiveReplays, long groupConnectTimeoutMs) {
+    public record Settings(int connectTimeoutMs, int maxActiveReplays, long groupConnectTimeoutMs, boolean tcpKeepTrying,
+                           long tcpRetryIntervalMs) {
     }
 
     private static final int PREFETCH_THREADS = 2;

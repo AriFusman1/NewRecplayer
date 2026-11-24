@@ -149,6 +149,8 @@ export interface SessionProgress {
   durationUs: number;
   positionUs: number;
   sentMessages: number;
+  /** Not delivered: a TCP server replay had no connection when they were due (it keeps retrying). */
+  missedMessages: number;
   totalMessages: number;
   sentBytes: number;
   binUs: number;
@@ -207,6 +209,8 @@ export interface HistoryEntry {
   startedAtMs: number;
   endedAtMs: number;
   messagesSent: number;
+  /** Not delivered for want of a connection (TCP server replays that keep trying); 0 or absent otherwise. */
+  missedMessages?: number;
   totalMessages: number;
   bytesSent: number;
   result: 'COMPLETED' | 'STOPPED' | 'FAILED';

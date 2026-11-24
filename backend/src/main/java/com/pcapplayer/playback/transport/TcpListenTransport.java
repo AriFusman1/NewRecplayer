@@ -125,7 +125,7 @@ public class TcpListenTransport implements Transport {
     }
 
     @Override
-    public void send(byte[] data, Control control) {
+    public boolean send(byte[] data, Control control) {
         try {
             out.write(data);
             out.flush();
@@ -134,6 +134,7 @@ public class TcpListenTransport implements Transport {
             throw new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", port, "reason", Sockets.reason(e)),
                     "Client disconnected from port " + port + ": " + Sockets.reason(e));
         }
+        return true;
     }
 
     @Override

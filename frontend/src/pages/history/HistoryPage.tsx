@@ -106,7 +106,8 @@ export function HistoryPage() {
                   <td><Ellipsis text={entry.startedBy} /></td>
                   <td className="mono"><Ellipsis text={formatMs(entry.startedAtMs)} ltr /></td>
                   <td className="mono"><Ellipsis text={formatMs(entry.endedAtMs)} ltr /></td>
-                  <td><span className="ltr">{formatNumber(entry.messagesSent)} / {formatNumber(entry.totalMessages)}</span><div className="small muted">{formatBytes(entry.bytesSent)}</div></td>
+                  <td><span className="ltr">{formatNumber(entry.messagesSent)} / {formatNumber(entry.totalMessages)}</span><div className="small muted">{formatBytes(entry.bytesSent)}</div>
+                    {(entry.missedMessages ?? 0) > 0 && <div className="small missed" title={t('live.missedHint')}>{t('live.missedShort', { n: formatNumber(entry.missedMessages!) })}</div>}</td>
                   <td><Result entry={entry} /></td>
                   <td><Playlist entry={entry} labels={labels} /></td>
                   <td />

@@ -42,7 +42,8 @@ public final class ItemPlayer {
         long zeroNanos = System.nanoTime();
         progress.start(zeroNanos);
         state.accept(EItemState.PLAYING);
-        if (!alreadyOpen) log.log("info", "LOG_CONNECTED", Map.of()); // else logged when it connected
+        // else logged when it connected; a keep-trying transport logs its own connects
+        if (!alreadyOpen && transport.isConnected()) log.log("info", "LOG_CONNECTED", Map.of());
 
         List<ScriptStep> steps = script.steps();
         int i = 0;
@@ -85,8 +86,8 @@ public final class ItemPlayer {
     private static long run(ScriptStep step, long zeroNanos, Transport transport, Control control, ItemProgress progress,
                             Consumer<EItemState> state, Log log) {
         if (step instanceof ScriptStep.Send send) {
-            transport.send(send.data(), control);
-            progress.sent(send.data().length);
+            if (transport.send(send.data(), control)) progress.sent(send.data().length);
+            else progress.missed();
         } else if (step instanceof ScriptStep.Gap gap) {
             log.log("warning", "LOG_GAP", Map.of("bytes", gap.bytes(), "offsetMs", TimeUnit.NANOSECONDS.toMillis(gap.offsetNanos())));
         } else if (step instanceof ScriptStep.Reconnect reconnect) {
@@ -106,7 +107,7 @@ public final class ItemPlayer {
                 PreciseClock.sleepUntil(zeroNanos + reconnect.connectOffsetNanos(), control);
                 transport.reopen(control);
             }
-            log.log("info", "LOG_CONNECTED", Map.of());
+            if (transport.isConnected()) log.log("info", "LOG_CONNECTED", Map.of());
         }
         return zeroNanos;
     }

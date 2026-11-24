@@ -94,7 +94,7 @@ final class ReplayTestKit {
     }
 
     static ReplayEngine engine(ReplayListener listener, int maxActive, long groupConnectTimeoutMs) {
-        return new ReplayEngine(new FakeSource(), listener, new ReplayEngine.Settings(1000, maxActive, groupConnectTimeoutMs));
+        return new ReplayEngine(new FakeSource(), listener, new ReplayEngine.Settings(1000, maxActive, groupConnectTimeoutMs, false, 1000));
     }
 
     static DatagramSocket udpReceiver(List<AutoCloseable> cleanup) throws Exception {

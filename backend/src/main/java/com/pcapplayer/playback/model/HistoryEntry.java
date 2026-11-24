@@ -6,12 +6,13 @@ import java.util.Map;
  * One finished run of one record.
  *
  * @param result      COMPLETED | STOPPED | FAILED
- * @param failureCode set when FAILED (see {@link ReplayFailure})
+ * @param failureCode    set when FAILED (see {@link ReplayFailure})
+ * @param missedMessages not delivered because a keep-trying TCP replay had no connection at the time
  * @param playlist    null for a single replay
  */
 public record HistoryEntry(String id, String recordId, String recordName, String categoryName, String mode,
                            String target, String startedBy, long startedAtMs, long endedAtMs,
-                           long messagesSent, long totalMessages, long bytesSent,
+                           long messagesSent, long missedMessages, long totalMessages, long bytesSent,
                            String result, String stoppedBy, String failureCode, Map<String, Object> failureParams,
                            PlaylistRef playlist) {
 

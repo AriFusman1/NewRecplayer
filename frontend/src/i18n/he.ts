@@ -83,6 +83,9 @@ export const he: Record<MessageKey, string> = {
   'live.clock': 'זמן ההקלטה',
   'live.messages': 'הודעות',
   'live.bytes': 'נשלח',
+  'live.missed': 'לא נמסרו',
+  'live.missedShort': '{n} לא נמסרו',
+  'live.missedHint': 'הודעות שהגיע זמנן כשלא היה חיבור ליעד (ההשמעה המשיכה וניסתה להתחבר שוב)',
   'live.log': 'יומן',
   'live.seekHint': 'לחצו או גררו על הגרף כדי לקפוץ',
 
@@ -370,6 +373,8 @@ export const he: Record<MessageKey, string> = {
   'notice.CLIENT_DISCONNECTED': 'הלקוח התנתק',
 
   'log.LOG_CONNECTED': 'מחובר',
+  'log.LOG_NOT_CONNECTED_RETRYING': 'אין חיבור אל {target} ({reason}) — ההשמעה ממשיכה; ניסיון חוזר כל {seconds} שנ׳',
+  'log.LOG_CONNECTION_LOST_RETRYING': 'החיבור אל {target} נותק ({reason}) — ההשמעה ממשיכה; ניסיון חוזר כל {seconds} שנ׳',
   'log.LOG_GROUP_CLIENT_LEFT': 'הלקוח התנתק לפני ההתחלה — ממתין שיתחבר שוב',
   'log.LOG_RECORDED_CLOSE': 'החיבור נסגר כמו בהקלטה — מתחבר מחדש',
   'log.LOG_GAP': 'דולג פער הקלטה של {bytes} בתים ב־+{offsetMs} מ״ש',

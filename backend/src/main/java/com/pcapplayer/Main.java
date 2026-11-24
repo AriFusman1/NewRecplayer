@@ -65,7 +65,8 @@ public final class Main {
         hubRef.set(hub);
         ReplayEngine engine = new ReplayEngine(catalog.scriptSource(), hub,
                 new ReplayEngine.Settings(config.replay().connectTimeoutMs(), config.replay().maxActiveReplays(),
-                        config.replay().groupConnectTimeoutMs()));
+                        config.replay().groupConnectTimeoutMs(), config.replay().tcpKeepTrying(),
+                        config.replay().tcpRetryIntervalMs()));
 
         Vertx vertx = Vertx.vertx(new VertxOptions()
                 .setMaxWorkerExecuteTime(MAX_WORKER_EXECUTE_MINUTES).setMaxWorkerExecuteTimeUnit(TimeUnit.MINUTES));

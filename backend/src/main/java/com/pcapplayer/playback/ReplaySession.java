@@ -5,6 +5,7 @@ import com.pcapplayer.playback.model.HistoryEntry;
 import com.pcapplayer.playback.model.ScriptSource;
 import com.pcapplayer.playback.model.SessionView;
 import com.pcapplayer.playback.transport.TcpConnectTransport;
+import com.pcapplayer.playback.transport.TcpKeepTryingTransport;
 import com.pcapplayer.playback.transport.TcpListenTransport;
 import com.pcapplayer.playback.transport.Transport;
 import com.pcapplayer.playback.transport.UdpSendTransport;
@@ -180,7 +181,7 @@ public class ReplaySession implements Runnable {
         if (ip != null && preparedNow != null && stateNow != EItemState.SLEEPING) {
             progressView = new SessionView.Progress(preparedNow.rangeStartUs(),
                     TimeUnit.NANOSECONDS.toMicros(ip.durationNanos()), TimeUnit.NANOSECONDS.toMicros(ip.positionNanos()),
-                    ip.sentMessages(), ip.totalMessages(), ip.sentBytes(),
+                    ip.sentMessages(), ip.missedMessages(), ip.totalMessages(), ip.sentBytes(),
                     TimeUnit.NANOSECONDS.toMicros(preparedNow.histogram().binNanos()), preparedNow.histogram().counts());
         }
         long sleepLeft = stateNow == EItemState.SLEEPING ? Math.max(0, sleepUntilMs.get() - System.currentTimeMillis()) : 0;
@@ -415,11 +416,12 @@ public class ReplaySession implements Runnable {
         long sent = ip == null ? 0 : ip.sentMessages();
         long totalMessages = ip == null ? 0 : ip.totalMessages();
         long bytes = ip == null ? 0 : ip.sentBytes();
+        long missed = ip == null ? 0 : ip.missedMessages();
         ReplayFailure failure = outcome.failure();
         return new HistoryEntry(UUID.randomUUID().toString(), item.info.recordId(),
                 item.info.name(), item.info.categoryName(), item.info.mode().name(),
                 item.target.describe(item.info.mode()), startedBy, startedAtMs, System.currentTimeMillis(),
-                sent, totalMessages, bytes,
+                sent, missed, totalMessages, bytes,
                 outcome.result().name(), outcome.result() == EItemStatus.STOPPED ? stoppedBy.get() : null,
                 failure == null ? null : failure.code(), failure == null ? null : failure.params(),
                 playlist ? new HistoryEntry.PlaylistRef(id, index + 1, total, playlistName) : null);
@@ -429,7 +431,11 @@ public class ReplaySession implements Runnable {
         EConnectionMode mode = item.info.mode();
 
         return switch (mode) {
-            case TCP_SERVER -> new TcpConnectTransport(item.target.host(), item.target.port(), engine.settings().connectTimeoutMs());
+            case TCP_SERVER -> engine.settings().tcpKeepTrying()
+                    ? new TcpKeepTryingTransport(item.target.host(), item.target.port(), engine.settings().connectTimeoutMs(),
+                    engine.settings().tcpRetryIntervalMs(), new ConnectionLog(this::log, item.target.describe(item.info.mode()),
+                    Math.max(1, TimeUnit.MILLISECONDS.toSeconds(engine.settings().tcpRetryIntervalMs()))))
+                    : new TcpConnectTransport(item.target.host(), item.target.port(), engine.settings().connectTimeoutMs());
             case UDP_SERVER -> new UdpSendTransport(item.target.host(), item.target.port());
 
             case TCP_CLIENT -> {

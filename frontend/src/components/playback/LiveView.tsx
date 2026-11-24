@@ -24,6 +24,7 @@ export function LiveView({ progress, onSeek }: { progress: SessionProgress; onSe
         <Stat label={t('live.remaining')} value={formatDuration(live.durationUs - live.positionUs)} />
         <Stat label={t('live.clock')} value={formatUs(live.rangeStartUs + live.positionUs)} mono />
         <Stat label={t('live.messages')} value={`${formatNumber(live.sentMessages)} / ${formatNumber(live.totalMessages)}`} />
+        {live.missedMessages > 0 && <Stat label={t('live.missed')} value={formatNumber(live.missedMessages)} />}
         <Stat label={t('live.bytes')} value={formatBytes(live.sentBytes)} />
       </div>
     </div>

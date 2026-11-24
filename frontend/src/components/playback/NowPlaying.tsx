@@ -230,7 +230,8 @@ function GroupRow({ session, onOpen }: { session: Session; onOpen: () => void })
             <div className="progress"><div style={{ width: `${percent}%` }} /></div>
             <div className="row between small muted">
               <span className="ltr">{formatDuration(progress.positionUs)} / {formatDuration(progress.durationUs)}</span>
-              <span className="ltr">{formatNumber(progress.sentMessages)} / {formatNumber(progress.totalMessages)}</span>
+              <span className="ltr">{formatNumber(progress.sentMessages)} / {formatNumber(progress.totalMessages)}
+                {progress.missedMessages > 0 && <span className="missed"> · {t('live.missedShort', { n: formatNumber(progress.missedMessages) })}</span>}</span>
             </div>
           </>
         ) : (

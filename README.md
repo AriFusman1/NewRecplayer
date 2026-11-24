@@ -349,6 +349,8 @@ All keys:
 | replay.connect-timeout-ms | REPLAY_CONNECT_TIMEOUT_MS | 5000 | TCP server mode connect timeout |
 | replay.max-active-replays | REPLAY_MAX_ACTIVE_REPLAYS | 10 | replays running at once, all users together (waiting ones count) |
 | replay.group-connect-timeout-ms | REPLAY_GROUP_CONNECT_TIMEOUT_MS | 300000 | records played together wait this long for all TCP clients to connect |
+| replay.tcp-keep-trying | REPLAY_TCP_KEEP_TRYING | true | TCP server replays play without a connection and retry it; false = fail with CONNECT_FAILED / CONNECTION_LOST |
+| replay.tcp-retry-interval-ms | REPLAY_TCP_RETRY_INTERVAL_MS | 1000 | how often such a replay retries the connection |
 | extraction.fragment-timeout-ms | EXTRACTION_FRAGMENT_TIMEOUT_MS | 30000 | incomplete IPv4 fragment sets are dropped after this |
 | extraction.tcp-gap-timeout-ms | EXTRACTION_TCP_GAP_TIMEOUT_MS | 2000 | a TCP hole not covered by an ACK becomes a gap after this |
 | extraction.udp-duplicate-window-ms | EXTRACTION_UDP_DUPLICATE_WINDOW_MS | 5 | identical UDP datagrams within this window count once |
@@ -662,9 +664,13 @@ message a readable text line. To watch a replay arrive locally, run `tools/peer.
 | TCP client | play, listening on port 7000 | `python tools/peer.py tcp-connect 127.0.0.1 7000` |
 | UDP server | `python tools/peer.py udp-listen 5000` | play to `127.0.0.1:5000` |
 
-A TCP server replay needs something listening on the target: with nothing there it fails at once
-with `Cannot connect to 127.0.0.1:6000: Connection refused`. UDP needs no listener (datagrams are
-just sent), and a TCP client replay waits for the service to connect.
+A TCP server replay plays even when nothing listens on the target: it keeps its schedule, retries
+the connection every second (`replay.tcp-retry-interval-ms`), and the messages due while there is
+no connection are not delivered ("8 not delivered" in Now playing and History; the log says
+"Cannot connect … — playing anyway"). Start `peer.py tcp-listen` in the middle of a replay and it
+gets the messages from that moment on; a connection that drops is retried the same way. With
+`replay.tcp-keep-trying: false` it fails instead (`CONNECT_FAILED` / `CONNECTION_LOST`). UDP needs no
+listener (datagrams are just sent), and a TCP client replay waits for the service to connect.
 
 ---
 
