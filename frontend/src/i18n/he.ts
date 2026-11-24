@@ -305,4 +305,6 @@ export const he: Record<MessageKey, string> = {
   'log.LOG_RECORDED_CLOSE': 'החיבור נסגר כמו בהקלטה — מתחבר מחדש',
   'log.LOG_GAP': 'דולג פער הקלטה של {bytes} בתים ב־+{offsetMs} מ״ש',
   'log.LOG_SEEK': '{by} קפץ/ה ל־+{to} שניות',
+  'log.LOG_TIMEFIX_ON': 'תיקון זמנים לפי ICD „{icd}”: {messages} הודעות',
+  'log.LOG_TIMEFIX_CLAMPED': '{count} ערכי זמן לא נכנסו לשדות שלהם ונחתכו לגבול',
 };

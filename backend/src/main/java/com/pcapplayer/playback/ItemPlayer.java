@@ -16,6 +16,9 @@ import java.util.function.Consumer;
  * A seek moves time zero so the requested position is "now" and continues from the first step at
  * or after it. Steps jumped over are not sent; the connection stays open, so recorded
  * closes/reopens that are jumped over are ignored.
+ * <p>
+ * With a {@link TimeFixer}, each packet's bytes pass through it right before they are sent, so time
+ * fields get the real send time. Without one, the recorded bytes are sent as they are.
  */
 public final class ItemPlayer {
 
@@ -26,8 +29,9 @@ public final class ItemPlayer {
     private ItemPlayer() {
     }
 
+    /** @param timeFixer rewrites time fields at send time; null to send the recorded bytes */
     static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
-                     Consumer<EItemState> state, Log log) {
+                     Consumer<EItemState> state, Log log, TimeFixer timeFixer) {
         state.accept(transport.waitsForPeer() ? EItemState.WAITING_FOR_CONNECTION : EItemState.CONNECTING);
         transport.open(control);
         control.takeSeek(); // a jump requested before playback started has nothing to apply to
@@ -47,7 +51,7 @@ public final class ItemPlayer {
                 ScriptStep step = steps.get(i);
 
                 if (PreciseClock.sleepUntilOrSeek(zeroNanos + step.offsetNanos(), control)) {
-                    zeroNanos = run(step, zeroNanos, transport, control, progress, state, log);
+                    zeroNanos = run(i, step, zeroNanos, transport, control, progress, state, log, timeFixer);
                     i++;
                     control.checkAlive();
                     continue;
@@ -67,6 +71,7 @@ public final class ItemPlayer {
                 next++;
             }
             i = next;
+            if (timeFixer != null) timeFixer.seekTo(next);
             zeroNanos = System.nanoTime() - target;
             progress.seek(zeroNanos, messages, bytes);
             state.accept(EItemState.PLAYING); // republish so viewers see the jump at once
@@ -74,10 +79,11 @@ public final class ItemPlayer {
     }
 
     /** Executes one step that is due. @return time zero, which a reconnect wait can move */
-    private static long run(ScriptStep step, long zeroNanos, Transport transport, Control control, ItemProgress progress,
-                            Consumer<EItemState> state, Log log) {
+    private static long run(int index, ScriptStep step, long zeroNanos, Transport transport, Control control,
+                            ItemProgress progress, Consumer<EItemState> state, Log log, TimeFixer timeFixer) {
         if (step instanceof ScriptStep.Send send) {
-            transport.send(send.data(), control);
+            byte[] data = timeFixer == null ? send.data() : timeFixer.bytesToSend(index, send.data());
+            transport.send(data, control);
             progress.sent(send.data().length);
         } else if (step instanceof ScriptStep.Gap gap) {
             log.log("warning", "LOG_GAP", Map.of("bytes", gap.bytes(), "offsetMs", TimeUnit.NANOSECONDS.toMillis(gap.offsetNanos())));

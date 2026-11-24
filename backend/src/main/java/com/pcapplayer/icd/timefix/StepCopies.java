@@ -30,6 +30,11 @@ public final class StepCopies implements StepBytes {
         return copies.remove(step);
     }
 
+    /** Drops every copy (after a seek: the next sends start from the original bytes again). */
+    public void clear() {
+        copies.clear();
+    }
+
     /** Copies still held (patched but not sent yet). */
     public int held() {
         return copies.size();

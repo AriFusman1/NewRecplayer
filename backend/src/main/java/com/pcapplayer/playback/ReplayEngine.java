@@ -10,6 +10,7 @@ import com.pcapplayer.playback.transport.Transport;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -26,7 +27,12 @@ import java.util.concurrent.Executors;
  */
 public class ReplayEngine {
 
-    public record Settings(int connectTimeoutMs) {
+    /** @param clock wall-clock time for time fixing (UTC); injectable for tests */
+    public record Settings(int connectTimeoutMs, Clock clock) {
+
+        public Settings(int connectTimeoutMs) {
+            this(connectTimeoutMs, Clock.systemUTC());
+        }
     }
 
     private static final int PREFETCH_THREADS = 2;

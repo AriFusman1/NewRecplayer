@@ -37,6 +37,7 @@ public final class TimeFixPlanner implements MessageAnalyzer {
     private final Map<Integer, List<MessagePatch>> byFirstStep = new HashMap<>();
     private final BitSet patchedSteps = new BitSet();
     private int messageCount;
+    private int maxSpan;
 
     public TimeFixPlanner(TimeFixProfile profile, PostPatchHook hook, TimeFixStats stats) {
         for (MessageTimeFix message : profile.messages()) byOpcode.put(message.opcode(), message);
@@ -93,11 +94,12 @@ public final class TimeFixPlanner implements MessageAnalyzer {
             for (ByteSpan span : field.spans()) patchedSteps.set(span.step());
         }
         messageCount++;
+        maxSpan = Math.max(maxSpan, patch.lastStep() - patch.firstStep());
         stats.planned();
     }
 
     /** The plan built from the messages seen so far (call after decoding). */
     public PatchPlan plan() {
-        return new PatchPlan(Map.copyOf(byFirstStep), (BitSet) patchedSteps.clone(), messageCount);
+        return new PatchPlan(Map.copyOf(byFirstStep), (BitSet) patchedSteps.clone(), messageCount, maxSpan);
     }
 }

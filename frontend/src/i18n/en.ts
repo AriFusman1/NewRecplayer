@@ -303,6 +303,8 @@ export const en = {
   'log.LOG_RECORDED_CLOSE': 'Connection closed as recorded — reconnecting',
   'log.LOG_GAP': 'Skipped a capture gap of {bytes} bytes at +{offsetMs} ms',
   'log.LOG_SEEK': '{by} jumped to +{to} s',
+  'log.LOG_TIMEFIX_ON': 'Time fixing with ICD “{icd}”: {messages} messages',
+  'log.LOG_TIMEFIX_CLAMPED': '{count} time values did not fit their fields and were clamped',
 } as const;
 
 export type MessageKey = keyof typeof en;

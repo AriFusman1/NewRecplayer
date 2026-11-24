@@ -12,6 +12,7 @@ import com.pcapplayer.pcapProcessing.diagnostics.Warning;
 import com.pcapplayer.pcapProcessing.script.EConnectionMode;
 import com.pcapplayer.recordManagement.model.Category;
 import com.pcapplayer.testSupport.SampleIcdMessages;
+import com.pcapplayer.testSupport.TestCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

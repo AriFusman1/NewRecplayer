@@ -483,6 +483,14 @@ Receive-side artifacts are handled:
 - A replay runs to the end of the selected range, then reports "completed".
 - **Playlists** run items in order with a pause after each. While one item plays, the next is
   prepared in the background. A failed item is recorded in history and the playlist continues.
+- **Time fixing** (categories with an ICD and a time-fix profile; see [docs/time-fix.md](docs/time-fix.md)):
+  - While a record is prepared, its messages are decoded and a patch plan is built. The plan is
+    cached, so replaying the record again does not decode again.
+  - Right before a message's first packet is sent, its time fields get the real send time, written
+    into copies of its packets. The cached script is never modified.
+  - Packets without time fields are sent as they are, and records without a profile take the
+    unchanged code path.
+  - After a jump into the middle of a message, the message is patched at its first remaining packet.
 
 ### Decoding messages (ICD)
 
@@ -539,7 +547,7 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `POST /api/records` | create; `409 DUPLICATE` unless `resolution: "NEW_NAME"` |
 | `PUT` / `DELETE /api/records/{id}`, `GET /api/records/{id}/download` | edit, delete, download the capture |
 | `GET /api/icds`, `GET /api/icds/{id}/tree`, `GET /api/icds/{id}/json` | ICDs (Java and uploaded), one ICD's structure, an uploaded ICD's file |
-| `POST /api/icds` (body: the ICD JSON file), `DELETE /api/icds/{id}` | upload or replace an ICD (`422 ICD_INVALID` lists every problem with its JSON path); delete one no category uses |
+| `POST /api/icds` (body: the ICD JSON file, `content-type: application/json`), `DELETE /api/icds/{id}` | upload or replace an ICD (`422 ICD_INVALID` lists every problem with its JSON path); delete one no category uses |
 | `PUT /api/categories/{id}/icd` | `{icdId}` (null to clear): the ICD the category's messages follow |
 | `GET` / `PUT /api/categories/{id}/timefix` | the category's time-fix profile with its ICD tree and warnings / save `{messages: [{opcode, base: {path, kind}, fields: [...]}]}` |
 | `GET /api/records/{id}/decode?limit=&opcode=&icd=` | debug: the record decoded with its category's ICD (or `icd`): counts per opcode, decode problems, the first `limit` messages (default 100) with fields and byte locations |

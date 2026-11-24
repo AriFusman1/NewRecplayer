@@ -56,9 +56,9 @@ public class CatalogService {
         this.records = new RecordService(support, uploads, cache, extractor, maxBins);
         this.taxonomy = new TaxonomyService(support, records);
         this.playlists = new PlaylistService(support);
-        this.scriptSource = new RecordScriptSource(repo, cache, extractor, maxBins);
         this.icds = new IcdService(support, builtInIcds);
         this.timeFix = new TimeFixService(support, icds, clock);
+        this.scriptSource = new RecordScriptSource(repo, cache, extractor, maxBins, new TimeFixPlans(icds, timeFix));
         this.decoding = new RecordDecodeService(support, cache, extractor, icds);
     }
 

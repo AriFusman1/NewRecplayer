@@ -59,7 +59,17 @@ Let `now` be the real wall-clock time (UTC) when the message's **first packet** 
    bits. A field split across two packets is written into both. Packet sizes, packet boundaries and
    send times do not change.
 
-Steps 1-2 are done before the replay starts. At send time only step 3 and the byte writes remain.
+Steps 1-2 are done before the replay starts: when the record is prepared (for a playlist, while the
+previous item plays), its messages are decoded and the plan is built and cached. At send time only
+step 3 and the byte writes remain, and only for packets that contain a time field. The other packets
+are sent as recorded, without copying. The cached recording is never modified: patches go into copies
+of the packets.
+
+If playback jumps (seek) into the middle of a message, so that its first packet is skipped, the
+message is patched when its first remaining packet is sent, with that moment as `now`.
+
+The replay log shows `Time fixing with ICD … : N messages` when an item starts, and how many values
+were clamped, if any. The server log has one line per plan with the decoding problems.
 
 A field inside an array is selected once as `targets[*].field` and is fixed in every element, each
 element with its own offset.
