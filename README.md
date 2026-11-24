@@ -185,6 +185,17 @@ through to the backend on port 8080.
 4. **Now Playing** (the bar at the bottom): live progress for every running replay. Click or drag
    on the graph to jump. Stop a replay, or edit the upcoming items of a playlist.
 5. **History**: the last runs and how they ended.
+6. **Time fixing** (optional): rewrite the time fields inside messages to the moment they are sent.
+   - On **Categories & Tags**, upload an ICD in the **ICDs** card. The file is JSON, in the format
+     described in [docs/icd-json-format.md](docs/icd-json-format.md); an invalid file is rejected with
+     every problem listed. Then choose the ICD in the category's dropdown.
+   - Click the clock button next to the category to open its **Time fix** page. Open a message type,
+     choose one **base** field and tick the fields to **fix**, giving each its time kind
+     (Regular s/ms, LTime, GPS). Fields inside arrays are chosen once and fixed in every element.
+     Save.
+   - Every replay of the category's records now fixes those fields. The time kinds and the exact
+     rules are in [docs/time-fix.md](docs/time-fix.md). To check an ICD against a real record, open
+     `/api/records/{id}/decode`.
 
 ---
 
@@ -367,7 +378,7 @@ backend/                          Maven project; all versions pinned in pom.xml 
 frontend/src/
   api/                     client.ts (one function per endpoint), types.ts (mirrors the backend JSON), live.ts (WebSocket)
   state/                   React contexts: catalog, live sessions, playlist draft, feedback (popups, toasts, useAction)
-  pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/
+  pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/, timefix/
   components/
     common/                small reusable pieces: Modal, Icon, Badges, Stat, TimeField, Sortable (drag-to-reorder)
     layout/                app frame: Header, BottomNav, FeedbackView (toasts, popups), NicknameDialog
@@ -375,7 +386,10 @@ frontend/src/
     records/               RecordCard, EditRecordDialog, RecordPicker
     playback/              NowPlaying, LiveView, PlayDialog, TargetFields
     playlist/              PlaylistDrawer
-  util/                    plain functions: time (date-fns), targets, record filters, browser storage
+    icd/                   IcdsCard (upload, list, download, delete ICDs)
+    timefix/               MessageTimeFixCard (one message's field tree with base / fix / kind)
+  util/                    plain functions: time (date-fns), targets, record filters, browser storage,
+                           timefix (editing a time-fix profile draft)
   i18n/                    i18next setup plus en.ts and he.ts (Hebrew must have every English key, or it does not compile)
 
 docs/                             icd-json-format.md (ICD format), time-fix.md (time kinds and formulas),

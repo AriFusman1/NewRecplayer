@@ -1,6 +1,7 @@
 # Plan: ICD message parsing and time-field fixing during playback
 
-Status: **approved, in progress.** Decisions from the review are in section 0.
+Status: **implemented** (stages 1-6). Decisions from the review are in section 0. The user documentation is
+[time-fix.md](time-fix.md) and [icd-json-format.md](icd-json-format.md).
 
 ## 0. Decisions after review
 

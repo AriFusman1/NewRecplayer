@@ -13,6 +13,28 @@ It needs:
 Categories without an ICD or profile, and message types the profile does not list, are sent exactly as
 recorded.
 
+## Setting it up
+
+1. Write the ICD in JSON ([icd-json-format.md](icd-json-format.md)) and upload it on
+   **Categories & Tags → ICDs**. Or, for an ICD in Java, add its classes under
+   `backend/src/main/java/com/pcapplayer/icd/versions/<version>/` and list the holder class in
+   `BuiltInIcds`.
+2. Choose the ICD in the category's dropdown. A category uses one ICD; several categories can share one.
+3. Open the category's **Time fix** page (the clock button). Each message type of the ICD is listed;
+   open one to see its fields: the header first, then the body, with structs, bit fields and arrays
+   expanded. Number fields have:
+   - **Base** (radio, one per message): the reference time. It gets the send time. It cannot be inside
+     an array.
+   - **Fix** (checkbox): a time that keeps its recorded distance from the base. A field inside an
+     array (`targets[*].seenGps`) is fixed in every element.
+   - **Time kind**: Regular (s), Regular (ms), LTime or GPS. The first guess is from the type
+     (64-bit integers: Regular ms; others: LTime); change it as needed.
+4. Save. Errors (fields without a base, a field that is not a number, …) prevent saving. Warnings
+   (a type too small for the kind, FLOAT32 precision) are shown but allowed.
+
+The profile belongs to the category's current ICD. If the category gets another ICD, the old profile
+is kept but not used until it is saved again for the new ICD.
+
 ## Time kinds
 
 | Kind | Meaning | Unit |
