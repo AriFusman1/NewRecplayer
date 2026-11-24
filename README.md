@@ -327,12 +327,16 @@ backend/                          Maven project; all versions pinned in pom.xml 
       flow/                rebuilding flows: TCP stream reassembly, UDP de-duplication
       summary/             the upload summary: CaptureScanner, CaptureSummary, Timeline (graph data)
       extract/             packets → replay script: MessageExtractor, its filter/settings/result, CachingExtractor
-      script/              the replay script itself: ReplayScript, ScriptStep, EConnectionMode, Histogram
+      script/              the replay script itself: ReplayScript, ScriptStep, ScriptFlow, EConnectionMode, Histogram
       diagnostics/         Warning: problems found in a capture (truncation, gaps, duplicates, ...)
     icd/                   ICDs (interface control documents) for decoding messages; see docs/icd-json-format.md
       model/               the format-agnostic model: IcdDefinition, HeaderDef, MessageDef, FieldDef, ...
       annotations/         @Icd, @IcdMessage, @IcdField, ... for ICDs written as Java classes
-      loading/             AnnotationIcdLoader, JsonIcdLoader, IcdModelValidator (rules shared by both), BuiltInIcds
+      loading/             AnnotationIcdLoader, JsonIcdLoader, IcdModelValidator (rules shared by both), BuiltInIcds,
+                           IcdRegistry (the ICDs the server knows)
+      decode/              script → messages: ScriptDecoder, FlowFramer (per-flow message reassembly),
+                           MessageDecoder (bytes → field values and positions), DecodedMessage, DecodeStats
+      analysis/            MessageAnalyzer (consumer of decoded messages), MessageCountAnalyzer, DecodeReport
       versions/            one sub-package per ICD version written in Java
     recordManagement/
       service/             business rules: RecordService (preview, create, edit, delete), TaxonomyService
@@ -472,6 +476,26 @@ Receive-side artifacts are handled:
 - **Playlists** run items in order with a pause after each. While one item plays, the next is
   prepared in the background. A failed item is recorded in history and the playlist continues.
 
+### Decoding messages (ICD)
+
+A category can have an ICD (see [docs/icd-json-format.md](docs/icd-json-format.md)). Its records can
+then be cut into messages and decoded:
+
+- The decoder reads the record's **replay script**: the same bytes playback sends, with IP fragments
+  and TCP segments already reassembled. Each `Send` step remembers its recorded flow (a TCP
+  connection, or a UDP source/destination pair).
+- Per flow, the bytes are cut into messages using the header's opcode and length. A message may span
+  several packets, and one packet may hold several messages. Each decoded message keeps its field
+  values and, for every field, the packets and offsets its bytes came from.
+- Problems never stop anything. The bytes involved are passed through untouched, counted, and logged
+  at most once per 10 s per kind:
+  - an unknown opcode: skipped by its length
+  - an impossible length: resync at the next packet
+  - a message cut by a capture gap or the end of the record
+  - a message that does not match its definition
+- `GET /api/records/{id}/decode` shows the result, to check an ICD against real traffic. Add
+  `?icd=<id>` to try an ICD before assigning it to the category.
+
 ### Storage layout (one bucket)
 
 ```
@@ -504,6 +528,7 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `POST /api/preview` | what a draft record would contain (stats, warnings, errors) |
 | `POST /api/records` | create; `409 DUPLICATE` unless `resolution: "NEW_NAME"` |
 | `PUT` / `DELETE /api/records/{id}`, `GET /api/records/{id}/download` | edit, delete, download the capture |
+| `GET /api/records/{id}/decode?limit=&opcode=&icd=` | debug: the record decoded with its category's ICD (or `icd`): counts per opcode, decode problems, the first `limit` messages (default 100) with fields and byte locations |
 | `POST` / `PUT` / `DELETE /api/categories[/{id}]`, `GET /api/categories/{id}/usage` | categories |
 | `POST` / `PUT` / `DELETE /api/tags[/{id}]` | tags |
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |

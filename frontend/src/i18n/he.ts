@@ -274,6 +274,10 @@ export const he: Record<MessageKey, string> = {
   'err.EMPTY_PLAYLIST': 'רשימת ההשמעה ריקה.',
   'err.PLAYLIST_EXISTS': 'כבר קיימת רשימה בשם „{name}”.',
   'err.DUPLICATE': 'רשומה כפולה.',
+  'err.NO_ICD': 'לקטגוריה „{category}” לא הוגדר ICD.',
+  'err.ICD_NOT_FOUND': 'ה-ICD „{id}” לא נמצא.',
+  'err.INVALID_OPCODE': 'ה-opcode חייב להיות מספר (עשרוני או הקסדצימלי 0x).',
+  'err.INVALID_PARAM': 'פרמטר בקשה לא תקין.',
 
   'notice.failed': 'ההשמעה נכשלה',
   'notice.CLIENT_DISCONNECTED': 'הלקוח התנתק',

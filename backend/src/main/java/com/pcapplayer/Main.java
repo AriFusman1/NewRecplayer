@@ -2,6 +2,7 @@ package com.pcapplayer;
 
 import com.pcapplayer.configuration.AppConfig;
 import com.pcapplayer.configuration.ConfigLoader;
+import com.pcapplayer.icd.loading.IcdRegistry;
 import com.pcapplayer.pcapProcessing.extract.CachingExtractor;
 import com.pcapplayer.pcapProcessing.extract.ExtractionSettings;
 import com.pcapplayer.pcapProcessing.extract.MessageExtractor;
@@ -59,7 +60,7 @@ public final class Main {
 
         // The catalog notifies the hub of changes, and the hub stores history in the catalog.
         AtomicReference<LiveHub> hubRef = new AtomicReference<>();
-        CatalogService catalog = new CatalogService(repo, uploads, cache, extractor,
+        CatalogService catalog = new CatalogService(repo, uploads, cache, extractor, IcdRegistry.withBuiltIns(),
                 config.histogram().maxBins(), () -> hubRef.get().catalogChanged());
         LiveHub hub = new LiveHub(entry -> storeHistory(catalog, entry));
         hubRef.set(hub);

@@ -13,6 +13,8 @@ export interface Category {
   name: string;
   mode: Mode;
   createdAtMs: number;
+  /** The ICD its messages follow; null when none is set. */
+  icdId: string | null;
 }
 
 export interface Tag {

@@ -426,7 +426,7 @@ public final class JsonIcdLoader {
      * Decimal or 0x-hex, possibly negative. Values up to 2^64 − 1 are accepted for UINT64 and kept as
      * the raw (two's complement) long.
      */
-    static Long parseNumber(String text) {
+    public static Long parseNumber(String text) {
         String trimmed = text.trim();
         boolean negative = trimmed.startsWith("-");
         String digits = negative ? trimmed.substring(1) : trimmed;

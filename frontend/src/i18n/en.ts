@@ -272,6 +272,10 @@ export const en = {
   'err.EMPTY_PLAYLIST': 'The playlist is empty.',
   'err.PLAYLIST_EXISTS': 'A playlist named “{name}” already exists.',
   'err.DUPLICATE': 'Duplicate record.',
+  'err.NO_ICD': 'Category “{category}” has no ICD.',
+  'err.ICD_NOT_FOUND': 'ICD “{id}” not found.',
+  'err.INVALID_OPCODE': 'The opcode must be a number (decimal or 0x hex).',
+  'err.INVALID_PARAM': 'Invalid request parameter.',
 
   'notice.failed': 'Replay failed',
   'notice.CLIENT_DISCONNECTED': 'Client disconnected',

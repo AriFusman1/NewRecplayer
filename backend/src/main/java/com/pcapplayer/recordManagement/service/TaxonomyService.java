@@ -34,7 +34,7 @@ public class TaxonomyService {
 
         return catalog.mutate(() -> {
             checkCategoryName(trimmedName, null);
-            Category category = new Category(UUID.randomUUID().toString(), trimmedName, mode, System.currentTimeMillis());
+            Category category = new Category(UUID.randomUUID().toString(), trimmedName, mode, System.currentTimeMillis(), null);
             writeToStorage(() -> catalog.repo.putCategory(category));
             return category;
         });
@@ -47,7 +47,7 @@ public class TaxonomyService {
         return catalog.mutate(() -> {
             Category old = catalog.requireCategory(id);
             checkCategoryName(trimmedName, id);
-            Category category = new Category(id, trimmedName, old.mode(), old.createdAtMs());
+            Category category = new Category(id, trimmedName, old.mode(), old.createdAtMs(), old.icdId());
             writeToStorage(() -> catalog.repo.putCategory(category));
             return category;
         });
