@@ -46,7 +46,8 @@ export function PlaylistDrawer({ onClose }: { onClose: () => void }) {
   const allValid = rows.length > 0 && !anyMissing && rows.every((row) => targetValid(row.mode!, row.draftItem.host, row.draftItem.port));
 
   const play = async () => {
-    if (await run(() => api.start(draft, true, nickname), t('playlist.play'))) {
+    // History records the saved playlist's name (an unsaved draft has none)
+    if (await run(() => api.start(draft, true, nickname, saved?.name ?? null), t('playlist.play'))) {
       rememberTargets(draft);
       onClose();
       openNowPlaying();

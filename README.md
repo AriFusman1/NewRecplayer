@@ -195,7 +195,8 @@ through to the backend on port 8080.
    on the graph to jump. Stop a replay, or edit the upcoming items of a playlist. Records played
    together share one card: an **All** tab with everyone's progress, a tab per record with its
    full live view, and **Stop all**.
-5. **History**: the last runs and how they ended.
+5. **History**: the last runs and how they ended. Filter by any column (text, multi-select, time and
+   number ranges); active filters show as chips and live in the URL, so a filtered view can be shared.
 
 ---
 
@@ -513,7 +514,7 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `POST` / `PUT` / `DELETE /api/tags[/{id}]` | tags |
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
-| `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist) |
+| `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist; optional `playlistName` is recorded in History) |
 | `POST /api/sessions/group` | play records together (one replay each, common start, all or nothing; waits for TCP clients) |
 | `POST /api/sessions/{id}/stop` | stop |
 | `POST /api/sessions/{id}/seek` | jump the current item to `positionUs` |
@@ -531,7 +532,11 @@ with `active`/`max` for the global limit),
 ```bash
 cd backend && mvn test                   # backend unit tests
 cd frontend && npx tsc --noEmit -p .     # frontend type check (also part of npm run build)
+cd frontend && npm test                  # frontend unit tests (Node's built-in test runner, no extra packages)
 ```
+
+Frontend unit tests are `src/**/*.test.ts`; `npm test` compiles them with `tsconfig.test.json` and runs
+them with `node --test`. They cover the History filters (`src/util/historyFilters.ts`).
 
 Tests that read real capture files need libpcap; they are skipped when it is missing.
 

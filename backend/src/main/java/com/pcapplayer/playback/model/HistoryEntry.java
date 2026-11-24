@@ -15,6 +15,7 @@ public record HistoryEntry(String id, String recordId, String recordName, String
                            String result, String stoppedBy, String failureCode, Map<String, Object> failureParams,
                            PlaylistRef playlist) {
 
-    public record PlaylistRef(String sessionId, int index, int total) {
+    /** @param name the saved playlist's name when it was started from one; null for an unsaved draft (and older entries) */
+    public record PlaylistRef(String sessionId, int index, int total, String name) {
     }
 }

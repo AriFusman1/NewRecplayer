@@ -93,8 +93,13 @@ public class ReplayEngine {
      * @throws ReplayFailure TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET
      */
     public SessionView start(List<ItemRequest> requests, boolean playlist, String startedBy) {
+        return start(requests, playlist, null, startedBy);
+    }
+
+    /** @param playlistName the saved playlist being played, recorded in history; null for a draft or a single replay */
+    public SessionView start(List<ItemRequest> requests, boolean playlist, String playlistName, String startedBy) {
         if (requests.isEmpty()) throw new ReplayFailure("EMPTY_PLAYLIST", Map.of(), "Nothing to play");
-        ReplaySession session = new ReplaySession(this, playlist, startedBy, toItems(requests));
+        ReplaySession session = new ReplaySession(this, playlist, playlistName, startedBy, toItems(requests));
         activeReplays.take(1); // a playlist plays one item at a time, so it takes one slot
 
         try {
@@ -123,7 +128,7 @@ public class ReplayEngine {
 
         try {
             for (ItemRequest request : requests) {
-                ReplaySession session = new ReplaySession(this, false, startedBy, toItems(List.of(request)));
+                ReplaySession session = new ReplaySession(this, false, null, startedBy, toItems(List.of(request)));
                 SessionItem item = session.firstItem();
 
                 try {

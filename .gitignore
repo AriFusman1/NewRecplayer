@@ -1,5 +1,6 @@
 node_modules/
 frontend/dist/
+frontend/.test-build/
 backend/target/
 backend/src/main/resources/webroot/
 *.log

@@ -214,7 +214,8 @@ export interface HistoryEntry {
   stoppedBy: string | null;
   failureCode: string | null;
   failureParams: Record<string, unknown> | null;
-  playlist: { sessionId: string; index: number; total: number } | null;
+  /** `name` is the saved playlist's name; null for an unsaved draft (and runs from before names were recorded). */
+  playlist: { sessionId: string; index: number; total: number; name?: string | null } | null;
 }
 
 /** One item to play (single replay = one item). */

@@ -35,6 +35,8 @@ public class ReplaySession implements Runnable {
 
     final String id = UUID.randomUUID().toString();
     final boolean playlist;
+    /** Name of the saved playlist this session plays, if any; shown and filtered on in History. */
+    final String playlistName;
     final String startedBy;
     final long startedAtMs = System.currentTimeMillis();
 
@@ -68,7 +70,8 @@ public class ReplaySession implements Runnable {
     /** While waiting for the group, re-check stop, disconnects and the start signal this often. */
     private static final long GROUP_WAIT_SLICE_MS = 20;
 
-    ReplaySession(ReplayEngine engine, boolean playlist, String startedBy, List<SessionItem> items) {
+    ReplaySession(ReplayEngine engine, boolean playlist, String playlistName, String startedBy, List<SessionItem> items) {
+        this.playlistName = playlist ? playlistName : null;
         this.engine = engine;
         this.playlist = playlist;
         this.startedBy = startedBy;
@@ -419,7 +422,7 @@ public class ReplaySession implements Runnable {
                 sent, totalMessages, bytes,
                 outcome.result().name(), outcome.result() == EItemStatus.STOPPED ? stoppedBy.get() : null,
                 failure == null ? null : failure.code(), failure == null ? null : failure.params(),
-                playlist ? new HistoryEntry.PlaylistRef(id, index + 1, total) : null);
+                playlist ? new HistoryEntry.PlaylistRef(id, index + 1, total, playlistName) : null);
     }
 
     Transport createTransport(SessionItem item) {
