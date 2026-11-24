@@ -30,6 +30,9 @@ public class TcpListenTransport implements Transport {
     private OutputStream out; // replay thread only
     private final AtomicBoolean expectedClose = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
+    /** False while a group waits for its clients: a disconnect is then only noted, not a failure. */
+    private final AtomicBoolean failOnDisconnect = new AtomicBoolean(true);
+    private final AtomicBoolean peerLeft = new AtomicBoolean();
 
     public TcpListenTransport(int port) {
         this.port = port;
@@ -96,15 +99,29 @@ public class TcpListenTransport implements Transport {
                     "Client disconnected: " + Sockets.reason(e));
         }
         expectedClose.set(false);
+        peerLeft.set(false);
         client.set(connected);
         final Socket accepted = connected;
 
         Drainer.start(connected, "drain-listen-" + port, reason -> {
-            if (!expectedClose.get() && client.get() == accepted) {
+            if (expectedClose.get() || client.get() != accepted) return;
+            if (!failOnDisconnect.get()) {
+                peerLeft.set(true); // waiting for the group to start: the client may connect again
+            } else {
                 control.fail(new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", port, "reason", reason),
                         "Client disconnected from port " + port + ": " + reason));
             }
         });
+    }
+
+    /** Whether a disconnect fails the replay (true, the default) or is only noted for {@link #peerLeft()}. */
+    public void failOnDisconnect(boolean fail) {
+        failOnDisconnect.set(fail);
+    }
+
+    /** The connected client went away while disconnects were only being noted. */
+    public boolean peerLeft() {
+        return peerLeft.get();
     }
 
     @Override

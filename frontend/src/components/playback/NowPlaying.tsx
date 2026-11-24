@@ -1,6 +1,7 @@
-import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { ItemRequest, Session, SessionItem } from '../../api/types';
+import type { ItemRequest, Session, SessionGroup, SessionItem } from '../../api/types';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { useAction } from '../../state/feedback';
@@ -9,56 +10,83 @@ import { useNickname } from '../../state/nickname';
 import { moveItem } from '../../state/playlist';
 import { DEFAULT_PORT, formatTarget, initialHost, msToSeconds, portValid, secondsLeft, secondsToMs, toItemRequest } from '../../util/target';
 import { rememberTargets } from '../../util/targetMemory';
+import { formatDuration, formatNumber } from '../../util/time';
 import { ModeBadge } from '../common/Badges';
 import { Icon } from '../common/Icon';
 import { LiveView, LogView } from './LiveView';
 import { Confirm } from '../common/Modal';
 import { SortableList, SortableRow, type SortableRowProps } from '../common/Sortable';
 
-const OPEN_EVENT = 'pcap-player:open-now-playing';
+/** The "Now playing" tab, where every running replay is shown in full. */
+export const PLAYING_PATH = '/playing';
 
-/** Expands the Now Playing panel (e.g. right after starting a replay). */
-export function openNowPlaying() {
-  window.dispatchEvent(new Event(OPEN_EVENT));
-}
-
-/** Docked above the bottom navigation on every page; shows every running replay from everyone. */
-export function NowPlaying() {
+/**
+ * A thin status line above the bottom navigation on every page: usage and one pill per running
+ * replay. It never expands over the page; clicking it opens the "Now playing" tab.
+ */
+export function NowPlayingStrip() {
   const { t } = useI18n();
-  const { sessions } = useLive();
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    const openPanel = () => setOpen(true);
-    window.addEventListener(OPEN_EVENT, openPanel);
-    return () => window.removeEventListener(OPEN_EVENT, openPanel);
-  }, []);
-  useEffect(() => {
-    if (sessions.length === 0) setOpen(false);
-  }, [sessions.length]);
-
+  const { sessions, usage } = useLive();
+  const navigate = useNavigate();
   const active = sessions.length > 0;
+  const entries = useMemo(() => groupSessions(sessions), [sessions]);
   return (
     <div className="now">
-      <div className="now-bar" onClick={() => active && setOpen(!open)}>
+      <div className="now-bar" role="link" onClick={() => navigate(PLAYING_PATH)} title={t('now.open')}>
         <div className={`eq${active ? '' : ' idle'}`}><span /><span /><span /></div>
         <strong>{t('now.title')}</strong>
-        {active ? <span className="badge ok">{t('now.count', { n: sessions.length })}</span>
-          : <span className="muted small">{t('now.empty')}</span>}
+        {usage.max > 0 && (
+          <span className={`badge ${usage.active >= usage.max ? 'warn' : active ? 'ok' : 'neutral'}`} title={t('usage.hint')}>
+            {t('usage.inUse', { active: usage.active, max: usage.max })}
+          </span>
+        )}
+        {!active && <span className="muted small">{t('now.empty')}</span>}
         <div className="now-strip">
-          {!open && sessions.map((session) => <SessionPill key={session.id} session={session} />)}
+          {entries.map((entry) => (entry.group
+            ? <GroupPill key={entry.group.id} sessions={entry.sessions} />
+            : <SessionPill key={entry.sessions[0].id} session={entry.sessions[0]} />))}
         </div>
-        {active && <Icon name={open ? 'chevronDown' : 'chevronUp'} />}
       </div>
-      {open && active && (
-        <div className="now-panel">
-          <div className="now-panel-inner">
-            {sessions.map((session) => <SessionCard key={session.id} session={session} />)}
-          </div>
-        </div>
-      )}
     </div>
   );
+}
+
+/** Every running replay from everyone, as cards: replays started together share one card. */
+export function NowPlayingList() {
+  const { sessions } = useLive();
+  const entries = useMemo(() => groupSessions(sessions), [sessions]);
+  return (
+    <div className="col" style={{ gap: 14 }}>
+      {entries.map((entry) => (entry.group
+        ? <GroupCard key={entry.group.id} size={entry.group.size} sessions={entry.sessions} />
+        : <SessionCard key={entry.sessions[0].id} session={entry.sessions[0]} />))}
+    </div>
+  );
+}
+
+/** A card in the panel: one session, or the sessions started together (in start order). */
+interface Entry {
+  group: SessionGroup | null;
+  sessions: Session[];
+}
+
+function groupSessions(sessions: Session[]): Entry[] {
+  const entries: Entry[] = [];
+  const byGroup = new Map<string, Entry>();
+  for (const session of sessions) {
+    if (!session.group) {
+      entries.push({ group: null, sessions: [session] });
+      continue;
+    }
+    let entry = byGroup.get(session.group.id);
+    if (!entry) {
+      entry = { group: session.group, sessions: [] };
+      byGroup.set(session.group.id, entry);
+      entries.push(entry);
+    }
+    entry.sessions.push(session);
+  }
+  return entries;
 }
 
 function current(session: Session): SessionItem | undefined {
@@ -92,7 +120,139 @@ function SessionPill({ session }: { session: Session }) {
   );
 }
 
-function SessionCard({ session }: { session: Session }) {
+function GroupPill({ sessions }: { sessions: Session[] }) {
+  const { t } = useI18n();
+  const anyPlaying = sessions.some(isPlaying);
+  return (
+    <span className="pill">
+      <span className={`dot${anyPlaying ? ' pulse' : ''}`} style={{ color: anyPlaying ? 'var(--success)' : 'var(--warning)' }} />
+      <Icon name="layers" size={13} />
+      <span className="ellipsis">{t('together.pill', { n: sessions.length })}</span>
+    </span>
+  );
+}
+
+const ALL_TAB = 'all';
+/** The tab open in each group's card, by group id; kept for as long as the app is open. */
+const openTabs = new Map<string, string>();
+
+/**
+ * Replays started together: an "All" tab with every member's progress side by side, plus one tab
+ * per member with its full live view. A member that has finished leaves the group's list.
+ */
+function GroupCard({ size, sessions }: { size: number; sessions: Session[] }) {
+  const { t } = useI18n();
+  const { nickname } = useNickname();
+  const { run } = useAction();
+  const [confirm, setConfirm] = useState(false);
+  const groupId = sessions[0].group?.id ?? '';
+  // remembered outside the component, so the tab is still open after visiting another page
+  const [tab, setTabState] = useState(() => openTabs.get(groupId) ?? ALL_TAB);
+  const setTab = (next: string) => {
+    openTabs.set(groupId, next);
+    setTabState(next);
+  };
+  const shown = sessions.find((session) => session.id === tab);
+  const activeTab = shown ? tab : ALL_TAB; // the chosen member may have finished
+  const group = sessions[0].group; // the latest counts, as sent with every member
+  const waitingForClients = !!group && !group.started && group.tcpClients > 0;
+
+  const stopAll = () => {
+    setConfirm(false);
+    void run(() => Promise.all(sessions.map((session) => api.stop(session.id, nickname))));
+  };
+
+  return (
+    <div className="session-card group-card">
+      <div className="session-head">
+        <div className="grow col" style={{ gap: 4 }}>
+          <div className="row wrap">
+            <span className="badge neutral"><Icon name="layers" size={13} />{t('together.card')}</span>
+            <span className="title">{t('together.running', { n: sessions.length, m: size })}</span>
+          </div>
+          <div className="row wrap small muted"><span>{t('now.startedBy', { name: sessions[0].startedBy })}</span></div>
+        </div>
+        <button className="btn danger sm" onClick={() => setConfirm(true)}><Icon name="stop" size={12} />{t('together.stopAll')}</button>
+      </div>
+
+      {waitingForClients && (
+        <div className="waiting">
+          <span className="spinner" />
+          {t('together.waitingClients', { n: group.connectedClients, m: group.tcpClients })}
+        </div>
+      )}
+
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={activeTab === ALL_TAB} className={`tab${activeTab === ALL_TAB ? ' active' : ''}`}
+          onClick={() => setTab(ALL_TAB)}>{t('together.all')}</button>
+        {sessions.map((session) => {
+          const item = current(session);
+          return (
+            <button key={session.id} role="tab" aria-selected={activeTab === session.id}
+              className={`tab${activeTab === session.id ? ' active' : ''}`} onClick={() => setTab(session.id)}>
+              <span className={`dot${isPlaying(session) ? ' pulse' : ''}`}
+                style={{ color: isPlaying(session) ? 'var(--success)' : 'var(--warning)' }} />
+              <span className="ellipsis">{item?.recordName}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === ALL_TAB
+        ? <div className="group-rows">{sessions.map((session) => <GroupRow key={session.id} session={session} onOpen={() => setTab(session.id)} />)}</div>
+        : shown && <SessionCard session={shown} embedded />}
+
+      {confirm && (
+        <Confirm title={t('together.stopAllConfirm')} body={sessions.map((session) => current(session)?.recordName).join('\n')}
+          confirmLabel={t('together.stopAll')} cancelLabel={t('common.cancel')} danger onConfirm={stopAll} onCancel={() => setConfirm(false)} />
+      )}
+    </div>
+  );
+}
+
+/** One member in the "All" tab: name, target, state and progress. Click to open its tab. */
+function GroupRow({ session, onOpen }: { session: Session; onOpen: () => void }) {
+  const { t } = useI18n();
+  const item = current(session);
+  if (!item) return null;
+  const progress = session.progress;
+  const percent = progress && progress.durationUs > 0 ? Math.min(100, (progress.positionUs / progress.durationUs) * 100) : 0;
+  const playing = isPlaying(session);
+  return (
+    <button className="group-row" onClick={onOpen}>
+      <div className="col" style={{ gap: 4, minWidth: 0 }}>
+        <div className="row"><strong className="ellipsis">{item.recordName}</strong><ModeBadge mode={item.mode} /></div>
+        <span className="small muted mono ltr">{formatTarget(item.mode, item.host, item.port)}</span>
+      </div>
+      <div className="col" style={{ gap: 6, minWidth: 0 }}>
+        {playing && progress ? (
+          <>
+            <div className="progress"><div style={{ width: `${percent}%` }} /></div>
+            <div className="row between small muted">
+              <span className="ltr">{formatDuration(progress.positionUs)} / {formatDuration(progress.durationUs)}</span>
+              <span className="ltr">{formatNumber(progress.sentMessages)} / {formatNumber(progress.totalMessages)}</span>
+            </div>
+          </>
+        ) : (
+          clientConnected(session) ? (
+            <span className="badge ok" style={{ alignSelf: 'flex-start' }}><Icon name="check" size={12} />{t('together.connected')}</span>
+          ) : (
+            <span className={`badge ${playing ? 'ok' : 'warn'}`} style={{ alignSelf: 'flex-start' }}>
+              {session.state !== 'PLAYING' && <span className="spinner" style={{ width: 11, height: 11 }} />}{stateText(session, t)}
+            </span>
+          )
+        )}
+      </div>
+    </button>
+  );
+}
+
+/** A TCP client in a group that is waiting: its service is connected, it waits for the others. */
+function clientConnected(session: Session): boolean {
+  return current(session)?.mode === 'TCP_CLIENT' && session.state === 'WAITING_FOR_GROUP';
+}
+
+function SessionCard({ session, embedded = false }: { session: Session; embedded?: boolean }) {
   const { t } = useI18n();
   const { nickname } = useNickname();
   const { run } = useAction();
@@ -109,7 +269,7 @@ function SessionCard({ session }: { session: Session }) {
   const seek = (positionUs: number) => void run(() => api.seek(session.id, positionUs, nickname));
 
   return (
-    <div className="session-card">
+    <div className={embedded ? 'session-card embedded' : 'session-card'}>
       <div className="session-head">
         <div className="grow col" style={{ gap: 4 }}>
           <div className="row wrap">
