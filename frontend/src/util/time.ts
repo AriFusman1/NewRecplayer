@@ -23,6 +23,18 @@ export function formatUs(epochUs: number): string {
   return formatMs(Math.floor(epochUs / US_PER_MS));
 }
 
+/** The time of day with milliseconds, Israel time: [HH, MM, SS, mmm]. */
+export function clockParts(epochUs: number): [string, string, string, string] {
+  const [hours, minutes, seconds, millis] = format(new TZDate(Math.floor(epochUs / US_PER_MS), TZ), 'HH:mm:ss:SSS').split(':');
+  return [hours, minutes, seconds, millis];
+}
+
+/** A length of time with milliseconds: "mm:ss.mmm", or "h:mm:ss.mmm" from one hour. */
+export function formatDurationMs(durationUs: number): string {
+  const millis = Math.floor(Math.max(0, durationUs) / US_PER_MS) % MS_PER_SECOND;
+  return `${formatDuration(durationUs)}.${String(millis).padStart(3, '0')}`;
+}
+
 /** A calendar day and an optional wall-clock time, as the date/time picker edits them (no time zone). */
 export interface DateTimeParts {
   year: number;

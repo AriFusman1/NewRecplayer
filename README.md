@@ -250,7 +250,10 @@ through to the backend on port 8080.
    with the same mode, or delete them with it. Renaming a tag to the name of another tag offers to
    merge the two (every record gets the remaining tag once).
 2. **Upload**: drop a pcap/pcapng file. Then, in this order:
-   - Drag across the summary graph to choose the time range, or set the start and end times: type
+   - Drag across the summary graph to choose the time range (or drag its edges). Under each end of
+     the graph is its time as `HH:MM:SS.mmm` with up/down arrows: click the hours, minutes, seconds
+     or milliseconds to choose what the arrows move (↑ ↓ and ← → keys work too); cuts keep
+     millisecond precision. Or set the start and end times: type
      them, or use the calendar button (a month calendar plus an HH:MM:SS clock; both fill the field,
      which stays editable). Only the recording's days can be picked; a date typed alone means from
      the recording's start (end field: to its end) on that day.
@@ -268,7 +271,8 @@ through to the backend on port 8080.
    at the "from" day, and an end before the start is flagged. Then either:
    - **Play** a single record, giving its target IP:port (or the port to listen on).
    - **Add to playlist**, or open the playlist and use **Add records…**.
-   - **Edit** a record: name, description, times, tags, and its category. The category can only
+   - **Edit** a record: name, description, times, tags, and its category. The times are a cut of the
+     whole recording, shown on the same graph with the same arrows as when uploading. The category can only
      change to one with the same connection mode, since the mode decides which ports and packets
      the record is built from.
    - **Select** several records (or all shown), then act on all of them from the bar that appears:

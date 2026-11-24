@@ -1,7 +1,7 @@
 // Run with `npm test` (Node's built-in test runner; no test library needed).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { compareDays, formatUs, parseBoundUs, readDateTime, usToDay, writeDateTime, type DateTimeParts } from './time.js';
+import { clockParts, compareDays, formatDurationMs, formatUs, parseBoundUs, readDateTime, usToDay, writeDateTime, type DateTimeParts } from './time.js';
 
 const US_PER_HOUR = 3_600_000_000;
 const day = (year: number, month: number, dayOfMonth: number): DateTimeParts => ({ year, month, day: dayOfMonth, time: null });
@@ -59,4 +59,17 @@ test('usToDay gives the Israel calendar day, not the UTC one', () => {
   assert.deepEqual(usToDay(parseBoundUs('24/11/2026 23:30', false)!), day(2026, 11, 24));
   // 00:30 in Israel is still the day before in UTC
   assert.deepEqual(usToDay(parseBoundUs('25/11/2026 00:30', false)!), day(2026, 11, 25));
+});
+
+test('clockParts: Israel time of day with milliseconds', () => {
+  const us = parseBoundUs('17/11/2026 21:50:05', false)! + 180_123; // + 180.123 ms
+  assert.deepEqual(clockParts(us), ['21', '50', '05', '180']);
+  assert.deepEqual(clockParts(parseBoundUs('25/11/2026 00:00:00', false)!), ['00', '00', '00', '000']);
+});
+
+test('formatDurationMs adds milliseconds to the duration', () => {
+  assert.equal(formatDurationMs(440_000), '00:00.440');
+  assert.equal(formatDurationMs(61_005_999), '01:01.005');
+  assert.equal(formatDurationMs(3_600_000_000 + 2_000), '1:00:00.002');
+  assert.equal(formatDurationMs(-5), '00:00.000');
 });

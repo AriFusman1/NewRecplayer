@@ -1,7 +1,8 @@
 import { useRef, useState, type PointerEvent } from 'react';
 import { useI18n } from '../../i18n';
-import { formatDuration, formatUs } from '../../util/time';
+import { formatDurationMs, formatUs } from '../../util/time';
 import { barHeight, fractionAt, maxOf } from './graph';
+import { TimeStepper } from './TimeStepper';
 
 interface Props {
   /** Capture start/end (epoch µs). */
@@ -17,6 +18,9 @@ interface Props {
   selectedEndUs: number | null;
   onChange: (startUs: number, endUs: number) => void;
 }
+
+/** The shortest cut the arrows allow. */
+const MIN_CUT_US = 1_000;
 
 type Drag = { kind: 'new'; anchorUs: number; startX: number; moved: boolean } | { kind: 'start' | 'end' };
 
@@ -106,10 +110,13 @@ export function RangeGraph({ startUs, endUs, binUs, total, highlight, selectedSt
         <div className="range-handle" style={{ left: `${left}%` }} onPointerDown={(e) => down(e, 'start')} />
         <div className="range-handle" style={{ left: `${right}%` }} onPointerDown={(e) => down(e, 'end')} />
       </div>
+      {/* each end of the cut: its time with arrows; they keep at least 1 ms between them, inside the recording */}
       <div className="range-axis">
-        <span>{formatUs(selectionStartUs)}</span>
-        <span className="muted">{formatDuration(selectionEndUs - selectionStartUs)}</span>
-        <span>{formatUs(selectionEndUs)}</span>
+        <TimeStepper label={t('upload.start')} valueUs={selectionStartUs} minUs={startUs} maxUs={selectionEndUs - MIN_CUT_US}
+          onChange={(fromUs) => onChange(fromUs, selectionEndUs)} />
+        <span className="muted">{formatDurationMs(selectionEndUs - selectionStartUs)}</span>
+        <TimeStepper label={t('upload.end')} valueUs={selectionEndUs} minUs={selectionStartUs + MIN_CUT_US} maxUs={endUs}
+          onChange={(toUs) => onChange(selectionStartUs, toUs)} />
       </div>
     </div>
   );
