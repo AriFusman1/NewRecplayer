@@ -7,7 +7,7 @@ import { Icon } from '../../components/common/Icon';
 import { PlaylistDrawer } from '../../components/playlist/PlaylistDrawer';
 import { RecordCard } from '../../components/records/RecordCard';
 import { toggleIn } from '../../util/list';
-import { matchesQuery, tagsForCategory } from '../../util/records';
+import { matchesQuery } from '../../util/records';
 import { msToUs, parseMs } from '../../util/time';
 import { Link } from 'react-router-dom';
 
@@ -27,7 +27,7 @@ export function PlayerPage() {
   const fromUs = from ? msToUs(parseMs(from) ?? NaN) : null;
   const toUs = to ? msToUs(parseMs(to) ?? NaN, true) : null;
 
-  const visibleTags = tagsForCategory(catalog.tags, categoryId);
+  const visibleTags = catalog.tags;
 
   const records = useMemo(() => {
     return catalog.records
@@ -59,7 +59,7 @@ export function PlayerPage() {
             <Icon name="search" />
             <input className="input" value={query} placeholder={t('player.search')} onChange={(e) => setQuery(e.target.value)} />
           </div>
-          <select className="select" value={categoryId} onChange={(e) => { setCategoryId(e.target.value); setTagIds([]); }}>
+          <select className="select" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">{t('player.allCategories')}</option>
             {catalog.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>

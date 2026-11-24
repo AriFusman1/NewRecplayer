@@ -40,7 +40,7 @@ export const RecordCard = memo(function RecordCard({ record }: { record: PcapRec
             <span className="chip"><Icon name="folder" size={12} />{category.name}</span>
             <ModeBadge mode={category.mode} />
             {record.tagIds.map((id) => tagById.get(id)).filter(Boolean).map((tag) => (
-              <span key={tag!.id} className={`chip tag${tag!.categoryId ? '' : ' global'}`}><bdi>#{tag!.name}</bdi></span>
+              <span key={tag!.id} className="chip tag"><bdi>#{tag!.name}</bdi></span>
             ))}
           </div>
         </div>

@@ -24,9 +24,6 @@ public final class CatalogRoutes {
     record CategoryBody(String name, EConnectionMode mode) {
     }
 
-    record TagBody(String name, String categoryId) {
-    }
-
     private CatalogRoutes() {
     }
 
@@ -79,10 +76,8 @@ public final class CatalogRoutes {
                 Map.of("records", taxonomy.categoryUsage(id(context)))));
         router.delete("/api/categories/:id").handler(context -> http.blockingVoid(context, () -> taxonomy.deleteCategory(id(context))));
 
-        router.post("/api/tags").handler(context -> http.blockingCreated(context, () -> {
-            TagBody body = Http.body(context, TagBody.class);
-            return taxonomy.createTag(body.name(), body.categoryId());
-        }));
+        router.post("/api/tags").handler(context -> http.blockingCreated(context, () ->
+                taxonomy.createTag(Http.body(context, NameBody.class).name())));
         router.put("/api/tags/:id").handler(context -> http.blocking(context, () ->
                 taxonomy.renameTag(id(context), Http.body(context, NameBody.class).name())));
         router.delete("/api/tags/:id").handler(context -> http.blockingVoid(context, () -> taxonomy.deleteTag(id(context))));

@@ -221,7 +221,6 @@ p { margin: 0; }
   border: 1px solid transparent;
 }
 .chip.tag { background: rgba(155, 123, 255, 0.12); color: #c7b6ff; }
-.chip.tag.global { background: rgba(45, 212, 191, 0.11); color: #8ee8da; }
 .chip.selectable { cursor: pointer; border-color: var(--border); background: transparent; color: var(--text-2); }
 .chip.selectable:hover { border-color: var(--border-strong); color: var(--text); }
 .chip.selectable.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }

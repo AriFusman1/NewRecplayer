@@ -175,6 +175,8 @@ through to the backend on port 8080.
    - **TCP server**: the player connects to the service (the service is a TCP server).
    - **UDP server**: the player sends UDP datagrams to the service.
    - **TCP client**: the player listens and the service connects to it.
+
+   Tags are global: create them here and put any tag on any record, whatever its category.
 2. **Upload**: drop a pcap/pcapng file. Then, in this order:
    - Drag across the summary graph to choose the time range, or type the start and end times.
    - Pick the category and the ports (and optionally an IP).

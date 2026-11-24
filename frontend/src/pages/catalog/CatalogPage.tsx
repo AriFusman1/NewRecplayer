@@ -75,24 +75,19 @@ function CategoriesCard() {
 
 function TagsCard() {
   const { t } = useI18n();
-  const { catalog, categoryById } = useCatalog();
+  const { catalog } = useCatalog();
   const { run } = useAction();
   const [name, setName] = useState('');
-  const [scope, setScope] = useState('');
   const [deleting, setDeleting] = useState<Tag | null>(null);
 
   const create = () => run(async () => {
-    await api.createTag(name.trim(), scope || null);
+    await api.createTag(name.trim());
     setName('');
   });
   const doDelete = async (tag: Tag) => {
     await run(() => api.deleteTag(tag.id));
     setDeleting(null);
   };
-  const groups: { key: string; label: string; tags: Tag[] }[] = [
-    { key: '', label: t('tags.global'), tags: catalog.tags.filter((tag) => !tag.categoryId) },
-    ...catalog.categories.map((category) => ({ key: category.id, label: category.name, tags: catalog.tags.filter((tag) => tag.categoryId === category.id) })),
-  ].filter((group) => group.tags.length > 0);
 
   return (
     <section className="card">
@@ -102,25 +97,16 @@ function TagsCard() {
         <div className="row wrap">
           <input className="input grow" style={{ minWidth: 140 }} placeholder={t('cat.name')} value={name}
             onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && void create()} />
-          <select className="select" style={{ width: 190 }} value={scope} onChange={(e) => setScope(e.target.value)} aria-label={t('tags.scope')}>
-            <option value="">{t('tags.global')}</option>
-            {catalog.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
           <button className="btn primary" disabled={!name.trim()} onClick={create}><Icon name="plus" />{t('common.create')}</button>
         </div>
       </div>
-      {groups.length === 0 && <p className="muted" style={{ padding: 12 }}>{t('tags.empty')}</p>}
-      {groups.map((group) => (
-        <div key={group.key} style={{ marginTop: 14 }}>
-          <span className="section-title">{group.label}</span>
-          <div className="list">
-            {group.tags.map((tag) => (
-              <EditableRow key={tag.id} name={tag.name} prefix="#" onRename={(newName) => api.renameTag(tag.id, newName)} onDelete={() => setDeleting(tag)}
-                extra={<span className={`chip tag${tag.categoryId ? '' : ' global'}`}>{tag.categoryId ? categoryById.get(tag.categoryId)?.name : t('tags.global')}</span>} />
-            ))}
-          </div>
+      {catalog.tags.length === 0 ? <p className="muted" style={{ padding: 12 }}>{t('tags.empty')}</p> : (
+        <div className="list" style={{ marginTop: 14 }}>
+          {[...catalog.tags].sort((left, right) => left.name.localeCompare(right.name)).map((tag) => (
+            <EditableRow key={tag.id} name={tag.name} prefix="#" onRename={(newName) => api.renameTag(tag.id, newName)} onDelete={() => setDeleting(tag)} />
+          ))}
         </div>
-      ))}
+      )}
       {deleting && (
         <Confirm title={t('tags.deleteTitle')} body={t('tags.deleteBody', { name: deleting.name })} danger
           confirmLabel={t('common.delete')} cancelLabel={t('common.cancel')}

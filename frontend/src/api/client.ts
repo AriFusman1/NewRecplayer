@@ -88,7 +88,7 @@ export const api = {
   categoryUsage: (id: string) => call<{ records: number }>('GET', `/api/categories/${id}/usage`),
   deleteCategory: (id: string) => call<void>('DELETE', `/api/categories/${id}`),
 
-  createTag: (name: string, categoryId: string | null) => call<Tag>('POST', '/api/tags', { name, categoryId }),
+  createTag: (name: string) => call<Tag>('POST', '/api/tags', { name }),
   renameTag: (id: string, name: string) => call<Tag>('PUT', `/api/tags/${id}`, { name }),
   deleteTag: (id: string) => call<void>('DELETE', `/api/tags/${id}`),
 

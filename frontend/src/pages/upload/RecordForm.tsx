@@ -10,7 +10,6 @@ import { useFeedback } from '../../state/feedback';
 import { useNickname } from '../../state/nickname';
 import { toggleIn } from '../../util/list';
 import { endpointSide } from '../../util/mode';
-import { tagAllowedIn } from '../../util/records';
 import { formatBytes, formatNumber } from '../../util/time';
 import { DuplicateDialog, type Duplicate } from './DuplicateDialog';
 import { PreviewCard } from './PreviewCard';
@@ -50,12 +49,11 @@ export function RecordForm({ upload, onDone }: { upload: UploadResult; onDone: (
   const chosen = useMemo(() => endpoints.filter((endpoint) => ports.includes(endpoint.port)), [endpoints, ports]);
   const ipSuggestions = useMemo(() => [...new Set(chosen.flatMap((endpoint) => endpoint.ips))], [chosen]);
   const highlight = useMemo(() => (summary.timeline?.length && chosen.length ? sumSeries(summary.timeline.length, chosen) : null), [summary.timeline, chosen]);
-  const tags = catalog.tags.filter((tag) => tagAllowedIn(tag, categoryId));
+  const tags = catalog.tags;
 
-  // a category change changes which ports and tags apply
+  // a category change changes which ports apply
   useEffect(() => {
     setPorts([]);
-    setTagIds((ids) => ids.filter((id) => catalog.tags.some((tag) => tag.id === id && tagAllowedIn(tag, categoryId))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryId]);
 
@@ -207,7 +205,7 @@ function TagPicker({ tags, selected, onToggle }: { tags: Tag[]; selected: string
         <div className="row wrap">
           {tags.map((tag) => (
             <button key={tag.id} className={`chip selectable${selected.includes(tag.id) ? ' on' : ''}`} onClick={() => onToggle(tag.id)}>
-              <bdi>#{tag.name}</bdi>{!tag.categoryId && <span className="muted"> · {t('tags.global')}</span>}</button>
+              <bdi>#{tag.name}</bdi></button>
           ))}
         </div>
       )}

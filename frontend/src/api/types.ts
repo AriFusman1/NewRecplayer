@@ -18,7 +18,6 @@ export interface Category {
 export interface Tag {
   id: string;
   name: string;
-  categoryId: string | null;
 }
 
 export interface RecordStats {

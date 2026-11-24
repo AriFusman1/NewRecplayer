@@ -26,8 +26,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static com.pcapplayer.recordManagement.service.CatalogSupport.nameExists;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.nameTaken;
@@ -217,7 +219,7 @@ public class RecordService {
         Preview preview = preview(request.draft());
         if (!preview.errors().isEmpty()) throw validationFailed(preview.errors());
         Category category = repo.category(request.categoryId());
-        List<String> tagIds = validTags(request.tagIds(), category.id());
+        List<String> tagIds = validTags(request.tagIds());
         UploadService.Upload upload = Strings.isBlank(request.uploadId()) ? null : uploads.get(request.uploadId());
 
         PcapFile existing = repo.exclusive(() -> {
@@ -339,22 +341,11 @@ public class RecordService {
         });
     }
 
-    private List<String> validTags(List<String> tagIds, String categoryId) {
+    /** Keeps the known tag ids, without duplicates. Any tag can be used in any category. */
+    private List<String> validTags(List<String> tagIds) {
         if (tagIds == null) return List.of();
-        Map<String, Tag> byId = new LinkedHashMap<>();
-        for (Tag tag : repo.tags()) byId.put(tag.id(), tag);
-        List<String> out = new ArrayList<>();
-
-        for (String id : new LinkedHashSet<>(tagIds)) {
-            Tag tag = byId.get(id);
-            if (tag == null) continue;
-
-            if (tag.categoryId() != null && !tag.categoryId().equals(categoryId)) {
-                throw ApiException.unprocessable("TAG_NOT_IN_CATEGORY", Map.of("tag", tag.name()), "Tag belongs to another category");
-            }
-            out.add(id);
-        }
-        return out;
+        Set<String> known = repo.tags().stream().map(Tag::id).collect(Collectors.toSet());
+        return new LinkedHashSet<>(tagIds).stream().filter(known::contains).toList();
     }
 
     private Record findByName(String name, String exceptId) {
