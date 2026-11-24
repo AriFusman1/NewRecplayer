@@ -13,6 +13,11 @@ public record Record(String id, String fileId, String name, String description, 
                      List<String> tagIds, List<Integer> ports, String ip, long startUs, long endUs,
                      RecordStats stats, String createdBy, long createdAtMs, long updatedAtMs) {
 
+    public Record withCategory(String newCategoryId) {
+        return new Record(id, fileId, name, description, newCategoryId, tagIds, ports, ip, startUs, endUs, stats,
+                createdBy, createdAtMs, System.currentTimeMillis());
+    }
+
     public Record withTags(List<String> tags) {
         return new Record(id, fileId, name, description, categoryId, tags, ports, ip, startUs, endUs, stats,
                 createdBy, createdAtMs, System.currentTimeMillis());

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { api } from '../../api/client';
+import { ApiError, api } from '../../api/client';
 import { MODES, type Category, type Mode, type Tag } from '../../api/types';
 import { ModeBadge } from '../../components/common/Badges';
 import { Icon } from '../../components/common/Icon';
@@ -7,8 +7,10 @@ import { Confirm } from '../../components/common/Modal';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { useAction } from '../../state/feedback';
+import { findByName } from '../../util/names';
+import { DeleteCategoryDialog } from './DeleteCategoryDialog';
 
-/** Manage categories (name + fixed connection mode) and tags (global or per category). */
+/** Manage categories (name + fixed connection mode) and global tags. */
 export function CatalogPage() {
   const { t } = useI18n();
   return (
@@ -35,11 +37,6 @@ function CategoriesCard() {
     setName('');
   });
   const askDelete = (category: Category) => run(async () => setDeleting({ category, recordCount: (await api.categoryUsage(category.id)).records }));
-  const doDelete = async () => {
-    if (!deleting) return;
-    await run(() => api.deleteCategory(deleting.category.id));
-    setDeleting(null);
-  };
   const counts = new Map<string, number>();
   catalog.records.forEach((record) => counts.set(record.categoryId, (counts.get(record.categoryId) ?? 0) + 1));
 
@@ -65,10 +62,7 @@ function CategoriesCard() {
             extra={<><ModeBadge mode={category.mode} /><span className="small muted">{t('cat.records', { n: counts.get(category.id) ?? 0 })}</span></>} />
         ))}
       </div>
-      {deleting && (
-        <Confirm title={t('cat.deleteTitle')} body={t('cat.deleteBody', { name: deleting.category.name, n: deleting.recordCount })} danger
-          confirmLabel={t('common.delete')} cancelLabel={t('common.cancel')} onConfirm={doDelete} onCancel={() => setDeleting(null)} />
-      )}
+      {deleting && <DeleteCategoryDialog category={deleting.category} recordCount={deleting.recordCount} onClose={() => setDeleting(null)} />}
     </section>
   );
 }
@@ -79,6 +73,7 @@ function TagsCard() {
   const { run } = useAction();
   const [name, setName] = useState('');
   const [deleting, setDeleting] = useState<Tag | null>(null);
+  const [merging, setMerging] = useState<{ from: Tag; into: Tag } | null>(null);
 
   const create = () => run(async () => {
     await api.createTag(name.trim());
@@ -87,6 +82,21 @@ function TagsCard() {
   const doDelete = async (tag: Tag) => {
     await run(() => api.deleteTag(tag.id));
     setDeleting(null);
+  };
+  /** Renaming to another tag's name offers to merge the two instead. */
+  const rename = async (tag: Tag, newName: string) => {
+    try {
+      await api.renameTag(tag.id, newName);
+    } catch (e) {
+      const into = e instanceof ApiError && e.code === 'TAG_EXISTS' ? findByName(catalog.tags, newName) : undefined;
+      if (!into || into.id === tag.id) throw e;
+      setMerging({ from: tag, into });
+    }
+  };
+  const doMerge = async () => {
+    if (!merging) return;
+    await run(() => api.mergeTag(merging.from.id, merging.into.id), t('tags.merged', { from: merging.from.name, into: merging.into.name }));
+    setMerging(null);
   };
 
   return (
@@ -103,7 +113,7 @@ function TagsCard() {
       {catalog.tags.length === 0 ? <p className="muted" style={{ padding: 12 }}>{t('tags.empty')}</p> : (
         <div className="list" style={{ marginTop: 14 }}>
           {[...catalog.tags].sort((left, right) => left.name.localeCompare(right.name)).map((tag) => (
-            <EditableRow key={tag.id} name={tag.name} prefix="#" onRename={(newName) => api.renameTag(tag.id, newName)} onDelete={() => setDeleting(tag)} />
+            <EditableRow key={tag.id} name={tag.name} prefix="#" onRename={(newName) => rename(tag, newName)} onDelete={() => setDeleting(tag)} />
           ))}
         </div>
       )}
@@ -112,6 +122,10 @@ function TagsCard() {
           confirmLabel={t('common.delete')} cancelLabel={t('common.cancel')}
           onConfirm={() => void doDelete(deleting)}
           onCancel={() => setDeleting(null)} />
+      )}
+      {merging && (
+        <Confirm title={t('tags.mergeTitle')} body={t('tags.mergeBody', { from: merging.from.name, into: merging.into.name })}
+          confirmLabel={t('tags.merge')} cancelLabel={t('common.cancel')} onConfirm={() => void doMerge()} onCancel={() => setMerging(null)} />
       )}
     </section>
   );

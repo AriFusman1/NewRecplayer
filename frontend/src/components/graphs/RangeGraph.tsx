@@ -88,7 +88,7 @@ export function RangeGraph({ startUs, endUs, binUs, total, highlight, selectedSt
           {total.map((count, i) => {
             const highlighted = highlight?.[i] ?? 0;
             return (
-              <div key={i} className={`rbar${count === 0 ? ' empty' : ''}${highlight ? '' : ' plain'}`}
+              <div key={i} className={`rbar${count === 0 ? ' rbar-empty' : ''}${highlight ? '' : ' plain'}`}
                 style={{ height: barHeight(count, max) }}
                 title={`${formatUs(startUs + i * binUs)} · ${count}`}>
                 {highlight && highlighted > 0 && <div className="rbar-hl" style={{ height: `${Math.min(100, (highlighted / count) * 100)}%` }} />}

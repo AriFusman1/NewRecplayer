@@ -48,6 +48,16 @@ export interface CreateBody extends DraftBody {
   resolution: 'NEW_NAME' | null;
 }
 
+/** The category must have the record's connection mode. */
+export interface UpdateBody {
+  name: string;
+  description: string;
+  startUs: number;
+  endUs: number;
+  categoryId: string;
+  tagIds: string[];
+}
+
 export const api = {
   catalog: () => call<Catalog>('GET', '/api/catalog'),
   history: () => call<HistoryEntry[]>('GET', '/api/history'),
@@ -78,7 +88,7 @@ export const api = {
 
   preview: (draft: DraftBody) => call<Preview>('POST', '/api/preview', draft),
   createRecord: (body: CreateBody) => call<PcapRecord>('POST', '/api/records', body),
-  updateRecord: (id: string, body: { name: string; description: string; startUs: number; endUs: number }) =>
+  updateRecord: (id: string, body: UpdateBody) =>
     call<PcapRecord>('PUT', `/api/records/${id}`, body),
   deleteRecord: (id: string) => call<void>('DELETE', `/api/records/${id}`),
   downloadUrl: (id: string) => `/api/records/${id}/download`,
@@ -86,11 +96,17 @@ export const api = {
   createCategory: (name: string, mode: Mode) => call<Category>('POST', '/api/categories', { name, mode }),
   renameCategory: (id: string, name: string) => call<Category>('PUT', `/api/categories/${id}`, { name }),
   categoryUsage: (id: string) => call<{ records: number }>('GET', `/api/categories/${id}/usage`),
-  deleteCategory: (id: string) => call<void>('DELETE', `/api/categories/${id}`),
+  /** `moveTo`: a category with the same mode that gets the records; without it they are deleted. */
+  deleteCategory: (id: string, moveTo?: string) =>
+    call<void>('DELETE', `/api/categories/${id}${moveTo ? `?moveTo=${encodeURIComponent(moveTo)}` : ''}`),
 
   createTag: (name: string) => call<Tag>('POST', '/api/tags', { name }),
   renameTag: (id: string, name: string) => call<Tag>('PUT', `/api/tags/${id}`, { name }),
   deleteTag: (id: string) => call<void>('DELETE', `/api/tags/${id}`),
+  /** Replaces the tag with `intoId` on every record, then deletes it. */
+  mergeTag: (id: string, intoId: string) => call<Tag>('POST', `/api/tags/${id}/merge`, { intoId }),
+  retagRecords: (recordIds: string[], add: string[], remove: string[]) =>
+    call<{ updated: number }>('POST', '/api/records/tags', { recordIds, add, remove }),
 
   createPlaylist: (name: string, items: SavedPlaylistItem[], by: string) =>
     call<SavedPlaylist>('POST', '/api/playlists', { name, items, by }),

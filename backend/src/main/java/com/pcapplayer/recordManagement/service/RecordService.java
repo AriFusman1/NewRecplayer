@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +35,7 @@ import java.util.stream.Collectors;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.nameExists;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.nameTaken;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.requireName;
+import static com.pcapplayer.recordManagement.service.CatalogSupport.requireSameMode;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.storage;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.validationFailed;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.writeToStorage;
@@ -61,7 +63,16 @@ public class RecordService {
         }
     }
 
-    public record UpdateRequest(String name, String description, long startUs, long endUs) {
+    /**
+     * @param categoryId null = keep; otherwise a category with the record's connection mode
+     * @param tagIds     null = keep; unknown ids are dropped
+     */
+    public record UpdateRequest(String name, String description, long startUs, long endUs, String categoryId,
+                                List<String> tagIds) {
+    }
+
+    /** Tags to add to and remove from several records at once; unknown ids are ignored. */
+    public record RetagRequest(List<String> recordIds, List<String> add, List<String> remove) {
     }
 
     /** @param stats null when the draft is too invalid to compute anything */
@@ -270,11 +281,17 @@ public class RecordService {
         return file;
     }
 
+    /**
+     * Name, description, times, category and tags. The new category must have the record's connection
+     * mode, since the mode decides which ports and packets the record is built from.
+     */
     public Record update(String id, UpdateRequest request) {
         Record old = catalog.requireRecord(id);
         String name = requireName(request.name());
         PcapFile file = catalog.requireFile(old.fileId());
         Category category = catalog.requireCategory(old.categoryId());
+        String categoryId = request.categoryId() == null ? category.id() : request.categoryId();
+        requireSameMode(category, catalog.requireCategory(categoryId));
         List<Warning> errors = new ArrayList<>();
         TimeRange range = checkRange(file.summary(), request.startUs(), request.endUs(), errors);
         if (!errors.isEmpty()) throw validationFailed(errors);
@@ -285,11 +302,46 @@ public class RecordService {
         return catalog.mutate(() -> {
             if (findByName(name, id) != null) throw nameExists("NAME_EXISTS", name, "Name already used");
             Record current = catalog.requireRecord(id);
+            catalog.requireCategory(categoryId); // may have been deleted meanwhile
+            List<String> tagIds = request.tagIds() == null ? current.tagIds() : validTags(request.tagIds());
             Record record = new Record(id, current.fileId(), name, Strings.trimToEmpty(request.description()),
-                    current.categoryId(), current.tagIds(), current.ports(), current.ip(), range.startUs(), range.endUs(), stats,
+                    categoryId, tagIds, current.ports(), current.ip(), range.startUs(), range.endUs(), stats,
                     current.createdBy(), current.createdAtMs(), System.currentTimeMillis());
             put(record);
             return record;
+        });
+    }
+
+    /**
+     * Adds and removes tags on several records in one catalog write. Records deleted meanwhile are
+     * skipped; a tag in both lists ends up removed.
+     *
+     * @return how many records changed
+     */
+    public int retag(RetagRequest request) {
+        List<String> recordIds = request.recordIds() == null ? List.of() : request.recordIds();
+        if (recordIds.isEmpty()) throw ApiException.unprocessable("RECORDS_REQUIRED", "Choose at least one record");
+
+        return catalog.mutate(() -> {
+            List<String> add = validTags(request.add());
+            Set<String> remove = request.remove() == null ? Set.of()
+                    : request.remove().stream().filter(Objects::nonNull).collect(Collectors.toSet());
+            int changed = 0;
+
+            for (String recordId : new LinkedHashSet<>(recordIds)) {
+                Record record = recordId == null ? null : repo.record(recordId);
+                if (record == null) continue;
+                LinkedHashSet<String> tags = new LinkedHashSet<>(record.tagIds());
+                tags.addAll(add);
+                tags.removeAll(remove);
+                List<String> newTags = List.copyOf(tags);
+
+                if (!newTags.equals(record.tagIds())) {
+                    put(record.withTags(newTags));
+                    changed++;
+                }
+            }
+            return changed;
         });
     }
 
@@ -309,6 +361,23 @@ public class RecordService {
     void deleteAllInCategory(String categoryId) {
         for (Record record : repo.records()) {
             if (record.categoryId().equals(categoryId)) deleteRecordAndOrphanFile(record.id());
+        }
+    }
+
+    void moveAllInCategory(String fromCategoryId, String toCategoryId) {
+        for (Record record : repo.records()) {
+            if (record.categoryId().equals(fromCategoryId)) put(record.withCategory(toCategoryId));
+        }
+    }
+
+    /** Puts {@code intoTagId} wherever {@code tagId} was (once), and removes {@code tagId}. */
+    void replaceTagEverywhere(String tagId, String intoTagId) {
+        for (Record record : repo.records()) {
+            if (record.tagIds().contains(tagId)) {
+                LinkedHashSet<String> tags = new LinkedHashSet<>();
+                for (String id : record.tagIds()) tags.add(id.equals(tagId) ? intoTagId : id);
+                put(record.withTags(List.copyOf(tags)));
+            }
         }
     }
 

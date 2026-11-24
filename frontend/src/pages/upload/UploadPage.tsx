@@ -1,37 +1,16 @@
 import { useRef, useState, type DragEvent } from 'react';
-import { api } from '../../api/client';
-import type { UploadResult } from '../../api/types';
 import { Icon } from '../../components/common/Icon';
 import { useI18n } from '../../i18n';
-import { useFeedback } from '../../state/feedback';
-import { useNickname } from '../../state/nickname';
+import { useUpload } from '../../state/upload';
 import { RecordForm } from './RecordForm';
 
-type Phase = { kind: 'idle' } | { kind: 'uploading'; percent: number; name: string } | { kind: 'scanning'; name: string } | { kind: 'form'; upload: UploadResult };
-
-/** Drop a capture → summary → fill the record → live preview → save (with duplicate handling). */
+/**
+ * Drop a capture → summary → fill the record → live preview → save (with duplicate handling). The
+ * upload and the form live in the upload context, so another page can be visited meanwhile.
+ */
 export function UploadPage() {
   const { t } = useI18n();
-  const { nickname } = useNickname();
-  const { showError } = useFeedback();
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
-
-  const start = async (file: File) => {
-    setPhase({ kind: 'uploading', percent: 0, name: file.name });
-    try {
-      const uploaded = await api.upload(file, nickname, (fraction) =>
-        setPhase(fraction >= 1 ? { kind: 'scanning', name: file.name } : { kind: 'uploading', percent: Math.round(fraction * 100), name: file.name }));
-      setPhase({ kind: 'form', upload: uploaded });
-    } catch (e) {
-      setPhase({ kind: 'idle' });
-      showError(e);
-    }
-  };
-
-  const reset = () => {
-    if (phase.kind === 'form') void api.discardUpload(phase.upload.uploadId).catch(() => undefined);
-    setPhase({ kind: 'idle' });
-  };
+  const { phase, draft, start, discard: reset } = useUpload();
 
   return (
     <div>
@@ -39,7 +18,7 @@ export function UploadPage() {
         <div><h1>{t('nav.upload')}</h1></div>
         {phase.kind === 'form' && <button className="btn" onClick={reset}><Icon name="upload" />{t('upload.another')}</button>}
       </div>
-      {phase.kind === 'idle' && <DropZone onFile={start} />}
+      {phase.kind === 'idle' && <DropZone onFile={(file) => void start(file)} />}
       {(phase.kind === 'uploading' || phase.kind === 'scanning') && (
         <div className="dropzone">
           <div className="big-icon"><span className="spinner" style={{ width: 24, height: 24 }} /></div>
@@ -48,7 +27,7 @@ export function UploadPage() {
           {phase.kind === 'uploading' && <div className="progress" style={{ width: 280 }}><div style={{ width: `${phase.percent}%` }} /></div>}
         </div>
       )}
-      {phase.kind === 'form' && <RecordForm key={phase.upload.uploadId} upload={phase.upload} onDone={() => setPhase({ kind: 'idle' })} />}
+      {phase.kind === 'form' && draft && <RecordForm key={phase.upload.uploadId} upload={phase.upload} draft={draft} />}
     </div>
   );
 }

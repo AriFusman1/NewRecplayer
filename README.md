@@ -171,19 +171,40 @@ through to the backend on port 8080.
 
 ## Using it
 
-1. **Categories & Tags**: create a category first. Its *connection mode* is fixed:
+1. **Categories & Tags**: manage categories and tags (they can also be created in place while
+   saving or editing a record, see below). A category's *connection mode* is fixed:
    - **TCP server**: the player connects to the service (the service is a TCP server).
    - **UDP server**: the player sends UDP datagrams to the service.
    - **TCP client**: the player listens and the service connects to it.
 
    Tags are global: create them here and put any tag on any record, whatever its category.
+   Deleting a category that has records asks what to do with them: move them to another category
+   with the same mode, or delete them with it. Renaming a tag to the name of another tag offers to
+   merge the two (every record gets the remaining tag once).
 2. **Upload**: drop a pcap/pcapng file. Then, in this order:
-   - Drag across the summary graph to choose the time range, or type the start and end times.
-   - Pick the category and the ports (and optionally an IP).
+   - Drag across the summary graph to choose the time range, or set the start and end times: type
+     them, or use the calendar button (a month calendar plus an HH:MM:SS clock; both fill the field,
+     which stays editable). Only the recording's days can be picked; a date typed alone means from
+     the recording's start (end field: to its end) on that day.
+   - Pick the category and the ports (and optionally an IP). The **+** next to the category creates
+     a new one (name + mode) and selects it. In the tags field, type to filter; Enter or **+**
+     selects the tag with that name, or creates it. An existing name is selected, not duplicated.
    - Check the preview on the right, then **Save record**.
-3. **Player**: find records by search, category, mode, tags or time. Then either:
+
+   The upload and the form are kept while you visit other pages (a dot on **Upload** shows one is
+   open), so you can create a category or check another record and come back. Closing or reloading
+   the browser tab asks first.
+3. **Player**: find records by search, category, mode, tags or recording time. The recording-time
+   fields take a date (the whole day), a date and HH, HH:MM or HH:MM:SS, typed or picked from the
+   calendar. Picking a day fills 00:00:00 in "from" and 23:59:59 in "to"; the "to" calendar starts
+   at the "from" day, and an end before the start is flagged. Then either:
    - **Play** a single record, giving its target IP:port (or the port to listen on).
    - **Add to playlist**, or open the playlist and use **Add records…**.
+   - **Edit** a record: name, description, times, tags, and its category. The category can only
+     change to one with the same connection mode, since the mode decides which ports and packets
+     the record is built from.
+   - **Select** several records (or all shown) and **Edit tags…** to add and remove tags on all of
+     them at once.
 4. **Now Playing** (the bar at the bottom): live progress for every running replay. Click or drag
    on the graph to jump. Stop a replay, or edit the upcoming items of a playlist.
 5. **History**: the last runs and how they ended.
@@ -352,13 +373,13 @@ backend/                          Maven project; all versions pinned in pom.xml 
 
 frontend/src/
   api/                     client.ts (one function per endpoint), types.ts (mirrors the backend JSON), live.ts (WebSocket)
-  state/                   React contexts: catalog, live sessions, playlist draft, feedback (popups, toasts, useAction)
+  state/                   React contexts: catalog, live sessions, playlist draft, upload in progress, feedback (popups, toasts, useAction)
   pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/
   components/
     common/                small reusable pieces: Modal, Icon, Badges, Stat, TimeField, Sortable (drag-to-reorder)
     layout/                app frame: Header, BottomNav, FeedbackView (toasts, popups), NicknameDialog
     graphs/                BarGraph (live progress, seek), RangeGraph (choose a time range), graph math
-    records/               RecordCard, EditRecordDialog, RecordPicker
+    records/               RecordCard, EditRecordDialog, RecordPicker, BulkTagDialog, CategorySelect and TagInput (pick or create in place)
     playback/              NowPlaying, LiveView, PlayDialog, TargetFields
     playlist/              PlaylistDrawer
   util/                    plain functions: time (date-fns), targets, record filters, browser storage
@@ -366,6 +387,8 @@ frontend/src/
 
 config/application.example.yml    template for your configuration (S3 address and secrets)
 tools/gen_samples.py              generates test captures with known expected output
+tools/gen_demo.py                 writes three plain demo captures (TCP server, TCP client, UDP) to try by hand
+tools/peer.py                     a stand-in service on this machine that prints what a replay delivers
 Dockerfile, docker-compose.yml
 ```
 
@@ -497,9 +520,10 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `GET /api/files/{id}/summary` | a stored file's summary |
 | `POST /api/preview` | what a draft record would contain (stats, warnings, errors) |
 | `POST /api/records` | create; `409 DUPLICATE` unless `resolution: "NEW_NAME"` |
-| `PUT` / `DELETE /api/records/{id}`, `GET /api/records/{id}/download` | edit, delete, download the capture |
-| `POST` / `PUT` / `DELETE /api/categories[/{id}]`, `GET /api/categories/{id}/usage` | categories |
-| `POST` / `PUT` / `DELETE /api/tags[/{id}]` | tags |
+| `POST /api/records/tags` | add and remove tags on several records: `{recordIds, add, remove}` → `{updated}` |
+| `PUT` / `DELETE /api/records/{id}`, `GET /api/records/{id}/download` | edit (name, description, times, `categoryId` with the same mode or `422 CATEGORY_MODE_MISMATCH`, `tagIds`), delete, download the capture |
+| `POST` / `PUT` / `DELETE /api/categories[/{id}]`, `GET /api/categories/{id}/usage` | categories; `DELETE ?moveTo={id}` moves the records to a category with the same mode instead of deleting them |
+| `POST` / `PUT` / `DELETE /api/tags[/{id}]`, `POST /api/tags/{id}/merge` | tags; merge replaces the tag with `{intoId}` on every record, then deletes it |
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
 | `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist) |
@@ -530,6 +554,21 @@ Tests that read real capture files need libpcap; they are skipped when it is mis
   super-packet with IP length 0, a closed connection followed by a new one.
 - **TCP client mode**: sequence wrap-around, and a range starting mid-connection.
 - **Formats**: big- and little-endian, pcap and pcapng, µs and ns resolution.
+
+`tools/gen_samples.py` writes `tcp_server.pcapng` with two link types on purpose; libpcap rejects
+it. To try the player by hand use `tools/gen_demo.py OUT_DIR` instead: `tcp_server_demo.pcap`
+(port 6000), `tcp_client_demo.pcap` (port 7000) and `udp_demo.pcap` (ports 5000 and 5001), every
+message a readable text line. To watch a replay arrive locally, run `tools/peer.py`:
+
+| Record mode | Start first | Then |
+|---|---|---|
+| TCP server | `python tools/peer.py tcp-listen 6000` | play to `127.0.0.1:6000` |
+| TCP client | play, listening on port 7000 | `python tools/peer.py tcp-connect 127.0.0.1 7000` |
+| UDP server | `python tools/peer.py udp-listen 5000` | play to `127.0.0.1:5000` |
+
+A TCP server replay needs something listening on the target: with nothing there it fails at once
+with `Cannot connect to 127.0.0.1:6000: Connection refused`. UDP needs no listener (datagrams are
+just sent), and a TCP client replay waits for the service to connect.
 
 ---
 

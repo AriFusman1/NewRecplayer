@@ -11,6 +11,7 @@ import java.util.UUID;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.nameExists;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.nameTaken;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.requireName;
+import static com.pcapplayer.recordManagement.service.CatalogSupport.requireSameMode;
 import static com.pcapplayer.recordManagement.service.CatalogSupport.writeToStorage;
 
 /** Categories (each with a fixed connection mode) and global tags. */
@@ -56,11 +57,21 @@ public class TaxonomyService {
         return records.countInCategory(id);
     }
 
-    /** Deletes the category, all its records and any pcap files no longer used. Tags are global and stay. */
-    public void deleteCategory(String id) {
+    /**
+     * Deletes the category. Its records move to {@code moveToId} (a category with the same mode), or,
+     * when that is null, are deleted together with any pcap files no longer used. Tags are global and stay.
+     */
+    public void deleteCategory(String id, String moveToId) {
         catalog.mutate(() -> {
-            catalog.requireCategory(id);
-            records.deleteAllInCategory(id);
+            Category category = catalog.requireCategory(id);
+
+            if (moveToId == null) {
+                records.deleteAllInCategory(id);
+            } else {
+                if (moveToId.equals(id)) throw ApiException.unprocessable("MOVE_TO_SAME", "Choose another category");
+                requireSameMode(category, catalog.requireCategory(moveToId));
+                records.moveAllInCategory(id, moveToId);
+            }
             writeToStorage(() -> catalog.repo.deleteCategory(id));
         });
     }
@@ -107,6 +118,20 @@ public class TaxonomyService {
             all.remove(indexOfTag(all, id));
             records.removeTagEverywhere(id);
             writeToStorage(() -> catalog.repo.saveTags(all));
+        });
+    }
+
+    /** Replaces the tag with {@code intoId} on every record (once each), then deletes it. */
+    public Tag mergeTag(String id, String intoId) {
+        return catalog.mutate(() -> {
+            List<Tag> all = catalog.repo.tags();
+            int i = indexOfTag(all, id);
+            Tag into = all.get(indexOfTag(all, intoId));
+            if (id.equals(intoId)) throw ApiException.unprocessable("MERGE_INTO_SAME", "Choose another tag");
+            records.replaceTagEverywhere(id, intoId);
+            all.remove(i);
+            writeToStorage(() -> catalog.repo.saveTags(all));
+            return into;
         });
     }
 

@@ -3,6 +3,7 @@ import { useDebounce } from 'use-debounce';
 import { api, type DraftBody } from '../../api/client';
 import type { Preview } from '../../api/types';
 import { useFeedback } from '../../state/feedback';
+import { useUpload } from '../../state/upload';
 
 const PREVIEW_DEBOUNCE_MS = 350;
 
@@ -12,6 +13,7 @@ const PREVIEW_DEBOUNCE_MS = 350;
  */
 export function useDraftPreview(draft: DraftBody | null): { preview: Preview | null; computing: boolean } {
   const { showError } = useFeedback();
+  const { closeIfExpired } = useUpload();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
   // compared by value: the caller builds a new draft object on every render
@@ -30,11 +32,11 @@ export function useDraftPreview(draft: DraftBody | null): { preview: Preview | n
       .catch((e) => {
         if (cancelled) return;
         setPreview(null);
-        showError(e);
+        if (!closeIfExpired(e)) showError(e);
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [settledKey, showError]);
+  }, [settledKey, showError, closeIfExpired]);
 
   // "computing" also while the user is still typing (the debounce has not settled yet)
   return { preview, computing: loading || (key !== null && key !== settledKey) };
