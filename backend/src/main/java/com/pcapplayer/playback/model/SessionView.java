@@ -6,7 +6,18 @@ import java.util.Map;
 /** Snapshot of a running session for the UI (Now Playing + live view). */
 public record SessionView(String id, boolean playlist, String startedBy, long startedAtMs, int version,
                           String state, int currentIndex, List<Item> items, Progress progress,
-                          long sleepRemainingMs, List<LogLine> log) {
+                          long sleepRemainingMs, List<LogLine> log, Group group) {
+
+    /**
+     * Set when the session was started with others ("Play together").
+     *
+     * @param size             how many records were started together
+     * @param tcpClients       how many of them are TCP clients (the group waits for them to connect)
+     * @param connectedClients how many of those are connected right now
+     * @param started          false while the group waits; true once all of them started playing
+     */
+    public record Group(String id, int size, int tcpClients, int connectedClients, boolean started) {
+    }
 
     /** @param status PENDING | PLAYING | COMPLETED | FAILED | STOPPED */
     public record Item(String itemId, String recordId, String recordName, String categoryName, String mode,
@@ -14,7 +25,8 @@ public record SessionView(String id, boolean playlist, String startedBy, long st
     }
 
     /** Progress of the current item; null while preparing or sleeping. */
-    public record Progress(long rangeStartUs, long durationUs, long positionUs, long sentMessages,
+    /** @param missedMessages not delivered because a keep-trying TCP replay had no connection at the time */
+    public record Progress(long rangeStartUs, long durationUs, long positionUs, long sentMessages, long missedMessages,
                            long totalMessages, long sentBytes, long binUs, long[] histogram) {
     }
 

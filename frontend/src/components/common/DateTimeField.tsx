@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { DayPicker } from 'react-day-picker';
 import { enUS, he } from 'react-day-picker/locale';
 import 'react-day-picker/style.css';
@@ -38,12 +39,14 @@ export function DateTimeField({ value, onChange, placeholder, invalid, requireTi
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
 
-  // close on a click outside
+  // close on a click outside the field and the popup (which is rendered elsewhere, see below)
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!root.current?.contains(target) && !popup.current?.contains(target)) setOpen(false);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
@@ -64,8 +67,11 @@ export function DateTimeField({ value, onChange, placeholder, invalid, requireTi
         <button type="button" className="dtf-toggle" title={t('dtp.open')} aria-label={t('dtp.open')} aria-expanded={open}
           onClick={() => setOpen(!open)}><Icon name="calendar" size={15} /></button>
       </div>
-      {open && <Popup anchor={root} value={value} onChange={onChange} requireTime={requireTime} dayTime={dayTime}
-        minDay={minDay ?? null} maxDay={maxDay ?? null} onClose={() => setOpen(false)} />}
+      {/* in <body>, not here: inside a table (History's filter row) the table's styles would reach the calendar's own table */}
+      {open && createPortal(
+        <Popup anchor={root} box={popup} value={value} onChange={onChange} requireTime={requireTime} dayTime={dayTime}
+          minDay={minDay ?? null} maxDay={maxDay ?? null} onClose={() => setOpen(false)} />,
+        document.body)}
     </div>
   );
 }
@@ -117,12 +123,11 @@ function fromDate(date: Date): DateTimeParts {
   return { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate(), time: null };
 }
 
-function Popup({ anchor, value, onChange, requireTime, dayTime, minDay, maxDay, onClose }: {
-  anchor: RefObject<HTMLElement>; value: string; onChange: (text: string) => void; requireTime?: boolean;
+function Popup({ anchor, box, value, onChange, requireTime, dayTime, minDay, maxDay, onClose }: {
+  anchor: RefObject<HTMLElement>; box: RefObject<HTMLDivElement>; value: string; onChange: (text: string) => void; requireTime?: boolean;
   dayTime: 'start' | 'end'; minDay: DateTimeParts | null; maxDay: DateTimeParts | null; onClose: () => void;
 }) {
   const { t, lang, dir } = useI18n();
-  const box = useRef<HTMLDivElement>(null);
   const position = usePopupPosition(anchor, box, dir);
   const parts = readDateTime(value);
   const defaultTime = dayTime === 'end' ? END_OF_DAY : START_OF_DAY;

@@ -9,6 +9,8 @@ public class ItemProgress {
     private final AtomicLong frozenPosition = new AtomicLong(-1);  // position while waiting for a reconnect
     private final AtomicLong sentMessages = new AtomicLong();
     private final AtomicLong sentBytes = new AtomicLong();
+    /** Messages whose time came while a keep-trying TCP transport had no connection. */
+    private final AtomicLong missedMessages = new AtomicLong();
     private final long durationNanos;
     private final long totalMessages;
 
@@ -30,12 +32,17 @@ public class ItemProgress {
     void seek(long zero, long messagesBefore, long bytesBefore) {
         sentMessages.set(messagesBefore);
         sentBytes.set(bytesBefore);
+        missedMessages.set(0);
         start(zero);
     }
 
     void sent(int bytes) {
         sentMessages.incrementAndGet();
         sentBytes.addAndGet(bytes);
+    }
+
+    void missed() {
+        missedMessages.incrementAndGet();
     }
 
     /** Nanoseconds from range start that playback has reached. */
@@ -53,6 +60,10 @@ public class ItemProgress {
 
     public long sentBytes() {
         return sentBytes.get();
+    }
+
+    public long missedMessages() {
+        return missedMessages.get();
     }
 
     public long totalMessages() {

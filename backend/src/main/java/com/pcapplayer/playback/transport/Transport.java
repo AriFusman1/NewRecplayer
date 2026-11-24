@@ -8,8 +8,18 @@ public interface Transport extends AutoCloseable {
     /** Opens the first connection; TCP_CLIENT blocks until the service connects. */
     void open(Control control);
 
-    /** One UDP datagram / one TCP write. */
-    void send(byte[] data, Control control);
+    /**
+     * One UDP datagram / one TCP write.
+     *
+     * @return false if it was not delivered because there is no connection right now (only a
+     *         transport that keeps trying does that; the others throw a ReplayFailure instead)
+     */
+    boolean send(byte[] data, Control control);
+
+    /** False while a transport that keeps trying has no connection. */
+    default boolean isConnected() {
+        return true;
+    }
 
     /** The recording shows the connection closing here. */
     void closeConnection();

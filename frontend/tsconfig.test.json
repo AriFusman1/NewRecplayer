@@ -1,0 +1,11 @@
+{
+  // Compiles the unit tests (src/**/*.test.ts) to plain JavaScript for Node's built-in test runner.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".test-build",
+    "rootDir": "src",
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.test.ts", "src/util/node-test.d.ts"]
+}

@@ -115,8 +115,12 @@ export const api = {
   deletePlaylist: (id: string) => call<void>('DELETE', `/api/playlists/${id}`),
 
   sessions: () => call<Session[]>('GET', '/api/sessions'),
-  start: (items: ItemRequest[], playlist: boolean, startedBy: string) =>
-    call<Session>('POST', '/api/sessions', { items, playlist, startedBy }),
+  /** `playlistName`: the saved playlist being played (recorded in History), if any. */
+  start: (items: ItemRequest[], playlist: boolean, startedBy: string, playlistName: string | null = null) =>
+    call<Session>('POST', '/api/sessions', { items, playlist, startedBy, playlistName }),
+  /** "Play together": one replay per item, all starting at once; nothing starts if any target fails. */
+  startGroup: (items: ItemRequest[], startedBy: string) =>
+    call<Session[]>('POST', '/api/sessions/group', { items, startedBy }),
   stop: (id: string, by: string) => call<void>('POST', `/api/sessions/${id}/stop`, { by }),
   seek: (id: string, positionUs: number, by: string) =>
     call<void>('POST', `/api/sessions/${id}/seek`, { positionUs, by }),

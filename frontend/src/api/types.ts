@@ -149,6 +149,8 @@ export interface SessionProgress {
   durationUs: number;
   positionUs: number;
   sentMessages: number;
+  /** Not delivered: a TCP server replay had no connection when they were due (it keeps retrying). */
+  missedMessages: number;
   totalMessages: number;
   sentBytes: number;
   binUs: number;
@@ -162,7 +164,24 @@ export interface LogLine {
   params: Record<string, unknown>;
 }
 
-export type SessionState = 'PREPARING' | 'CONNECTING' | 'WAITING_FOR_CONNECTION' | 'PLAYING' | 'SLEEPING';
+export type SessionState = 'PREPARING' | 'WAITING_FOR_GROUP' | 'CONNECTING' | 'WAITING_FOR_CONNECTION' | 'PLAYING' | 'SLEEPING';
+
+/** Sessions started together ("Play together") share a group; `size` counts all of them. */
+export interface SessionGroup {
+  id: string;
+  size: number;
+  /** How many members are TCP clients: the group waits until all of them are connected. */
+  tcpClients: number;
+  connectedClients: number;
+  /** False while waiting; true once every member started playing. */
+  started: boolean;
+}
+
+/** The global limit on running replays (all users together). */
+export interface Usage {
+  active: number;
+  max: number;
+}
 
 export interface Session {
   id: string;
@@ -176,6 +195,7 @@ export interface Session {
   progress: SessionProgress | null;
   sleepRemainingMs: number;
   log: LogLine[];
+  group: SessionGroup | null;
 }
 
 export interface HistoryEntry {
@@ -189,13 +209,16 @@ export interface HistoryEntry {
   startedAtMs: number;
   endedAtMs: number;
   messagesSent: number;
+  /** Not delivered for want of a connection (TCP server replays that keep trying); 0 or absent otherwise. */
+  missedMessages?: number;
   totalMessages: number;
   bytesSent: number;
   result: 'COMPLETED' | 'STOPPED' | 'FAILED';
   stoppedBy: string | null;
   failureCode: string | null;
   failureParams: Record<string, unknown> | null;
-  playlist: { sessionId: string; index: number; total: number } | null;
+  /** `name` is the saved playlist's name; null for an unsaved draft (and runs from before names were recorded). */
+  playlist: { sessionId: string; index: number; total: number; name?: string | null } | null;
 }
 
 /** One item to play (single replay = one item). */

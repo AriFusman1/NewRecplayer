@@ -29,7 +29,14 @@ public record AppConfig(Server server, Storage storage, S3 s3, String workDir, C
     public record Upload(int expireMinutes) {
     }
 
-    public record Replay(int connectTimeoutMs) {
+    /**
+     * @param maxActiveReplays     replays running at the same time, for all users together
+     * @param groupConnectTimeoutMs how long records played together wait for their TCP clients to connect
+     * @param tcpKeepTrying         TCP-server replays play even with no connection, retrying it in the background
+     * @param tcpRetryIntervalMs    how often they retry
+     */
+    public record Replay(int connectTimeoutMs, int maxActiveReplays, long groupConnectTimeoutMs, boolean tcpKeepTrying,
+                         long tcpRetryIntervalMs) {
     }
 
     public record Extraction(long fragmentTimeoutMs, long tcpGapTimeoutMs, long udpDuplicateWindowMs, long cacheMaxBytes) {

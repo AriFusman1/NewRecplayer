@@ -36,7 +36,7 @@ public class UdpSendTransport implements Transport {
     }
 
     @Override
-    public void send(byte[] data, Control control) {
+    public boolean send(byte[] data, Control control) {
         try {
             socket.send(new DatagramPacket(data, data.length, target));
         } catch (IOException e) {
@@ -44,6 +44,7 @@ public class UdpSendTransport implements Transport {
             throw new ReplayFailure("SEND_FAILED", Map.of("target", host + ":" + port, "reason", Sockets.reason(e)),
                     "UDP send to " + host + ":" + port + " failed: " + Sockets.reason(e));
         }
+        return true;
     }
 
     @Override

@@ -2,7 +2,7 @@ import ReconnectingWebSocket from 'reconnecting-websocket';
 import type { Session } from './types';
 
 export type LiveMessage =
-  | { type: 'sessions'; sessions: Session[] }
+  | { type: 'sessions'; sessions: Session[]; active: number; max: number }
   | { type: 'notice'; level: 'error' | 'warning' | 'info'; code: string; params: Record<string, unknown>; sessionId: string; startedBy: string }
   | { type: 'catalog' }
   | { type: 'history' };

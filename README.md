@@ -16,6 +16,15 @@ replies from the service are read and discarded.
   client mode). A live graph shows progress; **click or drag on it to jump** to another moment.
 - **Playlists**: several records in order, with a pause between them. Pick records from a list,
   then reorder by dragging. **Save playlists by name**; everyone can load and play them.
+- **Play together**: select 2 or more records and start them at the same moment, each to its own
+  target. If some of them are TCP clients, nothing plays until all of those services have
+  connected; then everything starts together. All or nothing: if one target can't be used, none
+  start.
+- **Global limit**: at most 10 replays (configurable) run at once, for all users together.
+- **Now playing tab**: every running replay, live; replays started together share one card with a
+  tab per record. Leaving the tab doesn't stop anything.
+- **History**: the last runs, with a filter under each column (text with suggestions, a calendar
+  for times, number ranges); filtered views live in the URL and can be shared.
 - **Remembers your targets**: each record pre-fills the IP and port it was last played to, and
   IP fields suggest your recent IPs. This is stored in your browser only.
 - **Shared**: everyone sees every running replay live and can stop it or edit upcoming items.
@@ -28,6 +37,7 @@ database), shipped as one Docker image (OpenShift-friendly).
 
 ## Contents
 
+- [Setting up a new computer](#setting-up-a-new-computer)
 - [Quick start](#quick-start)
 - [Using it](#using-it)
 - [Configuration](#configuration)
@@ -37,6 +47,64 @@ database), shipped as one Docker image (OpenShift-friendly).
 - [API](#api)
 - [Testing](#testing)
 - [Dependencies](#dependencies)
+
+---
+
+## Setting up a new computer
+
+**1. Install the tools** (once):
+
+| Tool | Version | macOS | Windows |
+|---|---|---|---|
+| Git | any recent | built in (Xcode command-line tools) | [git-scm.com](https://git-scm.com) |
+| JDK | 17 | [Temurin 17 .pkg](https://adoptium.net/temurin/releases/?version=17) | Temurin 17 .msi |
+| Maven | 3.9 | [download](https://maven.apache.org/download.cgi) the `-bin.tar.gz`, unpack it to `~/tools/` and add its `bin` to `PATH` | the `-bin.zip`, add `bin` to `PATH` |
+| Node.js | 20 | [nodejs.org](https://nodejs.org/en/download) .pkg (choose v20) | .msi (v20) |
+| libpcap | — | built in | [Npcap](https://npcap.com) |
+
+Check with `java -version`, `mvn -v` and `node -v`.
+
+**2. Get the code.** The current work is on the `yahali` branch (until it is merged into `main`):
+
+```bash
+git clone https://github.com/AriFusman1/NewRecplayer.git
+cd NewRecplayer
+git checkout yahali
+```
+
+**3. Signing in to GitHub (for `git push`).** When git asks for a password, GitHub does not accept
+your account password: give a **personal access token** (github.com → Settings → Developer settings
+→ Personal access tokens → Tokens (classic), with the `repo` scope). The operating system saves it
+after the first push. Tokens expire (30 days by default): when a push says "Invalid username or
+token", create a new token and push again. An SSH key avoids this.
+
+**4. Build and run**: see [Option B](#option-b-run-on-your-machine) below. For daily work:
+
+| You changed | Do |
+|---|---|
+| frontend code (`frontend/src`) | nothing: with `npm run dev` ([Option C](#option-c-frontend-development-hot-reload)) the page updates on save |
+| backend code (`backend/src`) | stop the backend (Ctrl-C), `cd backend && mvn -q package -DskipTests`, start it again |
+| configuration | restart the backend |
+
+Don't rebuild the jar while the backend is running from it: replacing the file under a running Java
+process can make it fail. Stop it first.
+
+**5. Your data does not travel with the code.** With `STORAGE_TYPE=filesystem`, records, uploaded
+captures and history are kept in `/tmp/pcap-player/store` on *that* computer. They are not in git,
+and **macOS empties `/tmp` when it restarts**. To keep them, choose a folder of your own:
+
+```bash
+STORAGE_TYPE=filesystem STORAGE_FILESYSTEM_ROOT=$HOME/pcap-player-data java -jar backend/target/pcap-player.jar
+```
+
+To move them to another computer, copy that folder. With S3 storage the data is in the bucket and
+every computer sees the same records.
+
+**6. Known macOS limitation.** Apple's built-in libpcap (1.10.1) rejects pcapng files whose
+interface records a snaplen of 0. Four unit tests use such files, so on macOS `mvn package` fails
+in those tests: build with `-DskipTests` there, and run the full test suite on Linux or in Docker.
+Real captures from dumpcap record a snaplen and read fine. Separately, pcapng files that mix link
+types (for example Ethernet and Linux SLL2 interfaces in one file) are refused on every platform.
 
 ---
 
@@ -182,7 +250,10 @@ through to the backend on port 8080.
    with the same mode, or delete them with it. Renaming a tag to the name of another tag offers to
    merge the two (every record gets the remaining tag once).
 2. **Upload**: drop a pcap/pcapng file. Then, in this order:
-   - Drag across the summary graph to choose the time range, or set the start and end times: type
+   - Drag across the summary graph to choose the time range (or drag its edges). Under each end of
+     the graph is its time as `HH:MM:SS.mmm` with up/down arrows: click the hours, minutes, seconds
+     or milliseconds to choose what the arrows move (↑ ↓ and ← → keys work too); cuts keep
+     millisecond precision. Or set the start and end times: type
      them, or use the calendar button (a month calendar plus an HH:MM:SS clock; both fill the field,
      which stays editable). Only the recording's days can be picked; a date typed alone means from
      the recording's start (end field: to its end) on that day.
@@ -200,14 +271,32 @@ through to the backend on port 8080.
    at the "from" day, and an end before the start is flagged. Then either:
    - **Play** a single record, giving its target IP:port (or the port to listen on).
    - **Add to playlist**, or open the playlist and use **Add records…**.
-   - **Edit** a record: name, description, times, tags, and its category. The category can only
+   - **Edit** a record: name, description, times, tags, and its category. The times are a cut of the
+     whole recording, shown on the same graph with the same arrows as when uploading. The category can only
      change to one with the same connection mode, since the mode decides which ports and packets
      the record is built from.
-   - **Select** several records (or all shown) and **Edit tags…** to add and remove tags on all of
-     them at once.
-4. **Now Playing** (the bar at the bottom): live progress for every running replay. Click or drag
-   on the graph to jump. Stop a replay, or edit the upcoming items of a playlist.
-5. **History**: the last runs and how they ended.
+   - **Select** several records (or all shown), then act on all of them from the bar that appears:
+     - **Edit tags…** adds and removes tags on all of them at once.
+     - **Play together** (2 or more records) asks for each one's target. After starting, the app
+       switches to the **Now playing** tab. They all start at the same moment; if any target can't
+       be used, none of them start. If some of them are **TCP clients**, nothing plays until every
+       one of those services has connected ("Waiting for connection: 1/3 TCP clients connected");
+       then all of them start together. A client that disconnects before the start is waited for
+       again. Stop, a failed record, or the connect timeout (`replay.group-connect-timeout-ms`) ends
+       the whole group. The server refuses a group of fewer than 2 with a 400.
+   - **Limit**: at most `replay.max-active-replays` (default 10) replays run at once, for all users
+     together; a replay waiting for a connection counts. Now Playing shows "7/10 in use", and a
+     start that does not fit is refused as a whole ("There are 3 free slots and you tried to start 5").
+4. **Now playing** (a tab of its own; the thin bar at the bottom shows usage and opens it): live
+   progress for every running replay. Leaving the tab does not stop anything. Click or drag
+   on the graph to jump. Stop a replay, or edit the upcoming items of a playlist. Records played
+   together share one card: an **All** tab with everyone's progress, a tab per record with its
+   full live view, and **Stop all**.
+5. **History**: the last runs and how they ended, with a filter under each column header: text with
+   suggestions (Record, Category, Target, Started by, Playlist), from/to date and time fields for
+   Start and End (the same calendar and clock as everywhere else), `100` / `>100` / `<50` /
+   `100-500` for Messages, and the Result options. Filters live in the URL, so a filtered view can
+   be shared.
 
 ---
 
@@ -262,6 +351,10 @@ All keys:
 | cache.max-bytes | CACHE_MAX_BYTES | 2 GiB | local disk cache of pcap files fetched from S3 |
 | upload.expire-minutes | UPLOAD_EXPIRE_MINUTES | 120 | an uploaded but unsaved file is discarded after this |
 | replay.connect-timeout-ms | REPLAY_CONNECT_TIMEOUT_MS | 5000 | TCP server mode connect timeout |
+| replay.max-active-replays | REPLAY_MAX_ACTIVE_REPLAYS | 10 | replays running at once, all users together (waiting ones count) |
+| replay.group-connect-timeout-ms | REPLAY_GROUP_CONNECT_TIMEOUT_MS | 300000 | records played together wait this long for all TCP clients to connect |
+| replay.tcp-keep-trying | REPLAY_TCP_KEEP_TRYING | true | TCP server replays play without a connection and retry it; false = fail with CONNECT_FAILED / CONNECTION_LOST |
+| replay.tcp-retry-interval-ms | REPLAY_TCP_RETRY_INTERVAL_MS | 1000 | how often such a replay retries the connection |
 | extraction.fragment-timeout-ms | EXTRACTION_FRAGMENT_TIMEOUT_MS | 30000 | incomplete IPv4 fragment sets are dropped after this |
 | extraction.tcp-gap-timeout-ms | EXTRACTION_TCP_GAP_TIMEOUT_MS | 2000 | a TCP hole not covered by an ACK becomes a gap after this |
 | extraction.udp-duplicate-window-ms | EXTRACTION_UDP_DUPLICATE_WINDOW_MS | 5 | identical UDP datagrams within this window count once |
@@ -526,13 +619,15 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `POST` / `PUT` / `DELETE /api/tags[/{id}]`, `POST /api/tags/{id}/merge` | tags; merge replaces the tag with `{intoId}` on every record, then deletes it |
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
-| `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist) |
+| `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist; optional `playlistName` is recorded in History) |
+| `POST /api/sessions/group` | play 2 or more records together (one replay each, common start, all or nothing; waits for TCP clients); fewer than 2 → 400 `GROUP_TOO_SMALL` |
 | `POST /api/sessions/{id}/stop` | stop |
 | `POST /api/sessions/{id}/seek` | jump the current item to `positionUs` |
 | `PUT /api/sessions/{id}/upcoming` | replace a running playlist's upcoming items |
 | `GET /health/live`, `GET /health/ready` | probes |
 
-WebSocket `/ws` (server → client): `sessions` (on every change and 5 times a second while playing),
+WebSocket `/ws` (server → client): `sessions` (on every change and 5 times a second while playing,
+with `active`/`max` for the global limit),
 `notice` (failure popups), `catalog` and `history` (hints to refetch).
 
 ---
@@ -542,9 +637,16 @@ WebSocket `/ws` (server → client): `sessions` (on every change and 5 times a s
 ```bash
 cd backend && mvn test                   # backend unit tests
 cd frontend && npx tsc --noEmit -p .     # frontend type check (also part of npm run build)
+cd frontend && npm test                  # frontend unit tests (Node's built-in test runner, no extra packages)
 ```
 
-Tests that read real capture files need libpcap; they are skipped when it is missing.
+Frontend unit tests are `src/**/*.test.ts`; `npm test` compiles them with `tsconfig.test.json` and runs
+them with `node --test`. They cover the History filters (`src/util/historyFilters.ts`) and the
+calendar arithmetic (`src/util/dateRange.ts`).
+
+Tests that read real capture files need libpcap; they are skipped when it is missing. On macOS
+four pcapng tests fail because of Apple's libpcap (see
+[Setting up a new computer](#setting-up-a-new-computer), step 6); everything else passes.
 
 `tools/gen_samples.py OUT_DIR` (Python 3, standard library only) writes test captures plus
 `expected.json`, which describes exactly what must be replayed. The captures cover:
@@ -566,9 +668,13 @@ message a readable text line. To watch a replay arrive locally, run `tools/peer.
 | TCP client | play, listening on port 7000 | `python tools/peer.py tcp-connect 127.0.0.1 7000` |
 | UDP server | `python tools/peer.py udp-listen 5000` | play to `127.0.0.1:5000` |
 
-A TCP server replay needs something listening on the target: with nothing there it fails at once
-with `Cannot connect to 127.0.0.1:6000: Connection refused`. UDP needs no listener (datagrams are
-just sent), and a TCP client replay waits for the service to connect.
+A TCP server replay plays even when nothing listens on the target: it keeps its schedule, retries
+the connection every second (`replay.tcp-retry-interval-ms`), and the messages due while there is
+no connection are not delivered ("8 not delivered" in Now playing and History; the log says
+"Cannot connect … — playing anyway"). Start `peer.py tcp-listen` in the middle of a replay and it
+gets the messages from that moment on; a connection that drops is retried the same way. With
+`replay.tcp-keep-trying: false` it fails instead (`CONNECT_FAILED` / `CONNECTION_LOST`). UDP needs no
+listener (datagrams are just sent), and a TCP client replay waits for the service to connect.
 
 ---
 

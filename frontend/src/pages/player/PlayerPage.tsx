@@ -3,9 +3,12 @@ import { MODES, type Mode } from '../../api/types';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { usePlaylist } from '../../state/playlist';
+import { useLive } from '../../state/live';
+import { MIN_PLAY_TOGETHER } from '../../util/target';
 import { Icon } from '../../components/common/Icon';
 import { PlaylistDrawer } from '../../components/playlist/PlaylistDrawer';
 import { DateTimeField } from '../../components/common/DateTimeField';
+import { PlayTogetherDialog } from '../../components/playback/PlayTogetherDialog';
 import { BulkTagDialog } from '../../components/records/BulkTagDialog';
 import { RecordCard } from '../../components/records/RecordCard';
 import { toggleIn } from '../../util/list';
@@ -13,7 +16,7 @@ import { matchesQuery } from '../../util/records';
 import { parseBoundUs, readDateTime } from '../../util/time';
 import { Link } from 'react-router-dom';
 
-/** Main page: search + filters + record cards, and the playlist drawer. */
+/** Main page: search + filters + record cards, the playlist drawer, and "Play together" (up to 10 records). */
 export function PlayerPage() {
   const { t } = useI18n();
   const { catalog, categoryById, recordById, loaded } = useCatalog();
@@ -25,13 +28,23 @@ export function PlayerPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [drawer, setDrawer] = useState(false);
-  /** Selection mode for bulk tagging. */
+  /** Selection mode: the chosen records can get tags (any number) or be played together (2 up to the free slots). */
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkTagging, setBulkTagging] = useState(false);
+  const [playTogether, setPlayTogether] = useState(false);
   const toggleSelected = useCallback((recordId: string) => setSelectedIds((ids) => toggleIn(ids, recordId)), []);
-  // records deleted meanwhile drop out of the selection
+  // in the order they were picked; records deleted meanwhile drop out of the selection
   const selected = selectedIds.filter((id) => recordById.has(id));
+
+  // The server allows `usage.max` replays at once for everyone together, so starting a group needs
+  // that many free slots (it checks again when Play is pressed). max 0 = not known yet: no check.
+  const { usage } = useLive();
+  const freeSlots = Math.max(0, usage.max - usage.active);
+  /** Why Play together cannot start now, or null. One record is played with Play. */
+  const playBlocked = selected.length < MIN_PLAY_TOGETHER ? t('select.tooFew')
+    : usage.max > 0 && selected.length > freeSlots ? t('select.noRoom', { free: freeSlots, n: selected.length })
+      : null;
 
   // NaN = typed but not a valid date (the field turns red and the filter is ignored)
   const fromUs = from ? parseBoundUs(from, false) ?? NaN : null;
@@ -82,6 +95,12 @@ export function PlayerPage() {
           <button className="btn ghost sm" disabled={records.length === 0} onClick={toggleAllVisible}>
             {allVisibleSelected ? t('bulk.unselectVisible') : t('bulk.selectVisible', { n: records.length })}</button>
           <div className="grow" />
+          {selected.length >= MIN_PLAY_TOGETHER && playBlocked && <span className="small" style={{ color: 'var(--warning)' }}>{playBlocked}</span>}
+          {/* the tooltip sits on a wrapper: a disabled button gets no mouse events, so it would never show */}
+          <span title={playBlocked ?? undefined}>
+            <button className="btn sm" disabled={playBlocked !== null} onClick={() => setPlayTogether(true)}>
+              <Icon name="play" size={12} />{t('select.playTogether', { n: selected.length })}</button>
+          </span>
           <button className="btn primary sm" disabled={selected.length === 0} onClick={() => setBulkTagging(true)}>
             <Icon name="tag" size={14} />{t('bulk.editTags')}</button>
           <button className="btn ghost sm" onClick={stopSelecting}>{t('bulk.done')}</button>
@@ -141,6 +160,10 @@ export function PlayerPage() {
             <RecordCard key={record.id} record={record} onToggleSelect={selecting ? toggleSelected : undefined} selected={selected.includes(record.id)} />
           ))}
         </div>
+      )}
+
+      {playTogether && (
+        <PlayTogetherDialog records={selected.map((id) => recordById.get(id)!)} onClose={() => setPlayTogether(false)} onStarted={stopSelecting} />
       )}
 
       {items.length > 0 && !drawer && (

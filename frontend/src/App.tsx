@@ -4,11 +4,12 @@ import { BottomNav } from './components/layout/BottomNav';
 import { FeedbackView } from './components/layout/FeedbackView';
 import { Header } from './components/layout/Header';
 import { NicknameDialog } from './components/layout/NicknameDialog';
-import { NowPlaying } from './components/playback/NowPlaying';
+import { NowPlayingStrip, PLAYING_PATH } from './components/playback/NowPlaying';
 import { I18nProvider } from './i18n';
 import { CatalogPage } from './pages/catalog/CatalogPage';
 import { HistoryPage } from './pages/history/HistoryPage';
 import { PlayerPage } from './pages/player/PlayerPage';
+import { PlayingPage } from './pages/playing/PlayingPage';
 import { UploadPage } from './pages/upload/UploadPage';
 import { CatalogProvider } from './state/catalog';
 import { FeedbackProvider } from './state/feedback';
@@ -50,13 +51,14 @@ function Shell() {
       <main className="app-main">
         <Routes>
           <Route path="/" element={<PlayerPage />} />
+          <Route path={PLAYING_PATH} element={<PlayingPage />} />
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/catalog" element={<CatalogPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-      <NowPlaying />
+      <NowPlayingStrip />
       <BottomNav />
       <FeedbackView />
       {!nickname && <NicknameDialog />}

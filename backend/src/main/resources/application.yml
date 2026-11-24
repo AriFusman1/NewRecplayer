@@ -38,6 +38,15 @@ upload:
 
 replay:
   connect-timeout-ms: 5000
+  # replays running at the same time, for all users together (waiting for a connection counts)
+  max-active-replays: 10
+  # records played together that include TCP clients wait this long for all of them to connect
+  group-connect-timeout-ms: 300000
+  # TCP server records: play even when the target is not listening (or the connection drops); the
+  # connection is retried every tcp-retry-interval-ms and messages due meanwhile are not delivered.
+  # false = fail the replay with CONNECT_FAILED / CONNECTION_LOST instead.
+  tcp-keep-trying: true
+  tcp-retry-interval-ms: 1000
 
 extraction:
   fragment-timeout-ms: 30000

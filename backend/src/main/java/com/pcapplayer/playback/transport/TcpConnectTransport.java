@@ -54,7 +54,7 @@ public class TcpConnectTransport implements Transport {
     }
 
     @Override
-    public void send(byte[] data, Control control) {
+    public boolean send(byte[] data, Control control) {
         try {
             out.write(data);
             out.flush();
@@ -63,6 +63,7 @@ public class TcpConnectTransport implements Transport {
             throw new ReplayFailure("CONNECTION_LOST", Map.of("target", host + ":" + port, "reason", Sockets.reason(e)),
                     "Write to " + host + ":" + port + " failed: " + Sockets.reason(e));
         }
+        return true;
     }
 
     @Override

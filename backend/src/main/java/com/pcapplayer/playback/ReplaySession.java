@@ -5,6 +5,7 @@ import com.pcapplayer.playback.model.HistoryEntry;
 import com.pcapplayer.playback.model.ScriptSource;
 import com.pcapplayer.playback.model.SessionView;
 import com.pcapplayer.playback.transport.TcpConnectTransport;
+import com.pcapplayer.playback.transport.TcpKeepTryingTransport;
 import com.pcapplayer.playback.transport.TcpListenTransport;
 import com.pcapplayer.playback.transport.Transport;
 import com.pcapplayer.playback.transport.UdpSendTransport;
@@ -35,6 +36,8 @@ public class ReplaySession implements Runnable {
 
     final String id = UUID.randomUUID().toString();
     final boolean playlist;
+    /** Name of the saved playlist this session plays, if any; shown and filtered on in History. */
+    final String playlistName;
     final String startedBy;
     final long startedAtMs = System.currentTimeMillis();
 
@@ -58,7 +61,18 @@ public class ReplaySession implements Runnable {
     private String firstLockKey;
     private Transport firstTransport;
 
-    ReplaySession(ReplayEngine engine, boolean playlist, String startedBy, List<SessionItem> items) {
+    /** Set when started together with other records ("Play together"). */
+    private ReplayGroup group;
+    /** How the first item ended (session thread only); the group needs it if that was before the start. */
+    private Outcome firstOutcome;
+    /** Set when the group ends this member before the start (timeout, or another member failed). */
+    private final AtomicReference<ReplayFailure> groupAbort = new AtomicReference<>();
+
+    /** While waiting for the group, re-check stop, disconnects and the start signal this often. */
+    private static final long GROUP_WAIT_SLICE_MS = 20;
+
+    ReplaySession(ReplayEngine engine, boolean playlist, String playlistName, String startedBy, List<SessionItem> items) {
+        this.playlistName = playlist ? playlistName : null;
         this.engine = engine;
         this.playlist = playlist;
         this.startedBy = startedBy;
@@ -68,6 +82,14 @@ public class ReplaySession implements Runnable {
     void preAcquired(String lockKey, Transport transport) {
         this.firstLockKey = lockKey;
         this.firstTransport = transport;
+    }
+
+    /** Undoes {@link #preAcquired} for a session that will not be started after all. */
+    void releasePreAcquired() {
+        if (firstTransport != null) firstTransport.close();
+        engine.release(firstLockKey, this);
+        firstLockKey = null;
+        firstTransport = null;
     }
 
     private <T> T locked(Supplier<T> work) {
@@ -89,6 +111,10 @@ public class ReplaySession implements Runnable {
 
     private boolean stopRequested() {
         return stoppedBy.get() != null;
+    }
+
+    void joinGroup(ReplayGroup replayGroup) {
+        this.group = replayGroup;
     }
 
     SessionItem firstItem() {
@@ -155,12 +181,13 @@ public class ReplaySession implements Runnable {
         if (ip != null && preparedNow != null && stateNow != EItemState.SLEEPING) {
             progressView = new SessionView.Progress(preparedNow.rangeStartUs(),
                     TimeUnit.NANOSECONDS.toMicros(ip.durationNanos()), TimeUnit.NANOSECONDS.toMicros(ip.positionNanos()),
-                    ip.sentMessages(), ip.totalMessages(), ip.sentBytes(),
+                    ip.sentMessages(), ip.missedMessages(), ip.totalMessages(), ip.sentBytes(),
                     TimeUnit.NANOSECONDS.toMicros(preparedNow.histogram().binNanos()), preparedNow.histogram().counts());
         }
         long sleepLeft = stateNow == EItemState.SLEEPING ? Math.max(0, sleepUntilMs.get() - System.currentTimeMillis()) : 0;
         return new SessionView(id, playlist, startedBy, startedAtMs, version, stateNow.name(), current, list, progressView,
-                sleepLeft, new ArrayList<>(log));
+                sleepLeft, new ArrayList<>(log), group == null ? null : new SessionView.Group(group.id, group.size,
+                        group.tcpClientCount(), group.connectedClients(), group.started()));
     }
 
     // ------------------------------------------------------------------ the session thread
@@ -176,6 +203,9 @@ public class ReplaySession implements Runnable {
                 if (hasNext && !stopRequested() && item.sleepAfterMs.get() > 0) sleepBetweenItems(item);
             }
         } finally {
+            if (group != null && firstOutcome != null) {
+                group.memberEnded(this, stoppedBy.get(), firstOutcome.failure()); // no-op once the group has started
+            }
             engine.finished(this);
         }
     }
@@ -238,6 +268,8 @@ public class ReplaySession implements Runnable {
         Control itemControl = freshControl();
         String stopper = stoppedBy.get();
         if (stopper != null) itemControl.stop(stopper);
+        ReplayFailure abort = groupAbort.get();
+        if (abort != null) itemControl.fail(abort); // the group ended before this thread got here
         long started = System.currentTimeMillis();
         state.set(EItemState.PREPARING);
         progress.set(null);
@@ -245,13 +277,17 @@ public class ReplaySession implements Runnable {
         engine.changed();
 
         Outcome outcome = playScript(item, index, itemControl);
+        if (index == 0) firstOutcome = outcome;
 
         item.status.set(outcome.result());
         ReplayFailure failure = outcome.failure();
 
         if (failure != null) {
             log("error", failure.code(), failure.params());
-            engine.listener().notice("error", failure.code(), failure.params(), id, startedBy);
+            // a group failure is announced once for the whole group, not by every member
+            if (!failure.code().startsWith("GROUP_")) {
+                engine.listener().notice("error", failure.code(), failure.params(), id, startedBy);
+            }
         }
 
         int total = locked(() -> {
@@ -282,11 +318,12 @@ public class ReplaySession implements Runnable {
             prefetchNext(index);
             ItemProgress itemProgress = new ItemProgress(loaded.script().durationNanos(), loaded.script().messageCount());
             progress.set(itemProgress);
+            boolean connected = index == 0 && group != null && waitForGroupStart(transport, itemControl);
 
             ItemPlayer.play(loaded.script(), transport, itemControl, itemProgress, newState -> {
                 state.set(newState);
                 engine.changed();
-            }, this::log);
+            }, this::log, connected);
             return Outcome.COMPLETED;
         } catch (RuntimeException e) {
             return outcomeOf(e, itemControl);
@@ -295,6 +332,65 @@ public class ReplaySession implements Runnable {
             engine.release(lockKey, this);
             Thread.interrupted();
         }
+    }
+
+    /**
+     * The script is loaded: get ready and wait for the group's start signal. A TCP client first
+     * waits for its service to connect (and again if it disconnects before the start); any other
+     * member is ready at once.
+     *
+     * @return true if the transport is already connected (a TCP client)
+     */
+    private boolean waitForGroupStart(Transport transport, Control itemControl) {
+        TcpListenTransport tcpClient = transport instanceof TcpListenTransport listening ? listening : null;
+
+        if (tcpClient != null) {
+            tcpClient.failOnDisconnect(false);
+            connectForGroup(tcpClient, itemControl);
+        } else {
+            group.markReady(this);
+        }
+        setState(EItemState.WAITING_FOR_GROUP);
+
+        while (!group.waitForStart(GROUP_WAIT_SLICE_MS)) {
+            itemControl.checkAlive(); // Stop, or the group failed
+
+            if (tcpClient != null && tcpClient.peerLeft()) {
+                group.markNotReady(this);
+                log("warning", "LOG_GROUP_CLIENT_LEFT", Map.of());
+                tcpClient.closeConnection();
+                connectForGroup(tcpClient, itemControl);
+                setState(EItemState.WAITING_FOR_GROUP);
+            }
+        }
+
+        if (tcpClient != null) {
+            tcpClient.failOnDisconnect(true); // from now on a disconnect fails the replay, as usual
+            if (tcpClient.peerLeft()) {
+                throw new ReplayFailure("CLIENT_DISCONNECTED", Map.of("port", firstItem().target.port(), "reason", "closed by peer"),
+                        "Client disconnected just as the group started");
+            }
+        }
+        return tcpClient != null;
+    }
+
+    /** Waits until the service connects to our listening port, then counts this member as ready. */
+    private void connectForGroup(TcpListenTransport tcpClient, Control itemControl) {
+        setState(EItemState.WAITING_FOR_CONNECTION);
+        tcpClient.open(itemControl);
+        log("info", "LOG_CONNECTED", Map.of());
+        group.markReady(this);
+    }
+
+    private void setState(EItemState newState) {
+        state.set(newState);
+        engine.changed();
+    }
+
+    /** The group ended before it started (timeout, or another member failed): end this member too. */
+    void failFromGroup(ReplayFailure failure) {
+        groupAbort.set(failure);
+        control.get().fail(failure);
     }
 
     /** Starts preparing the item after {@code index}, if any, while this one plays. */
@@ -320,21 +416,26 @@ public class ReplaySession implements Runnable {
         long sent = ip == null ? 0 : ip.sentMessages();
         long totalMessages = ip == null ? 0 : ip.totalMessages();
         long bytes = ip == null ? 0 : ip.sentBytes();
+        long missed = ip == null ? 0 : ip.missedMessages();
         ReplayFailure failure = outcome.failure();
         return new HistoryEntry(UUID.randomUUID().toString(), item.info.recordId(),
                 item.info.name(), item.info.categoryName(), item.info.mode().name(),
                 item.target.describe(item.info.mode()), startedBy, startedAtMs, System.currentTimeMillis(),
-                sent, totalMessages, bytes,
+                sent, missed, totalMessages, bytes,
                 outcome.result().name(), outcome.result() == EItemStatus.STOPPED ? stoppedBy.get() : null,
                 failure == null ? null : failure.code(), failure == null ? null : failure.params(),
-                playlist ? new HistoryEntry.PlaylistRef(id, index + 1, total) : null);
+                playlist ? new HistoryEntry.PlaylistRef(id, index + 1, total, playlistName) : null);
     }
 
     Transport createTransport(SessionItem item) {
         EConnectionMode mode = item.info.mode();
 
         return switch (mode) {
-            case TCP_SERVER -> new TcpConnectTransport(item.target.host(), item.target.port(), engine.settings().connectTimeoutMs());
+            case TCP_SERVER -> engine.settings().tcpKeepTrying()
+                    ? new TcpKeepTryingTransport(item.target.host(), item.target.port(), engine.settings().connectTimeoutMs(),
+                    engine.settings().tcpRetryIntervalMs(), new ConnectionLog(this::log, item.target.describe(item.info.mode()),
+                    Math.max(1, TimeUnit.MILLISECONDS.toSeconds(engine.settings().tcpRetryIntervalMs()))))
+                    : new TcpConnectTransport(item.target.host(), item.target.port(), engine.settings().connectTimeoutMs());
             case UDP_SERVER -> new UdpSendTransport(item.target.host(), item.target.port());
 
             case TCP_CLIENT -> {
