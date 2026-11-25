@@ -1,5 +1,6 @@
 package com.pcapplayer.icd.tree;
 
+import com.pcapplayer.icd.model.ArrayDef;
 import com.pcapplayer.icd.model.BitDef;
 import com.pcapplayer.icd.model.EFieldType;
 import com.pcapplayer.icd.model.FieldDef;
@@ -40,9 +41,8 @@ public final class IcdTreeBuilder {
     private static IcdTreeNode node(FieldDef field, String prefix, boolean parentInArray) {
         boolean inArray = parentInArray || field.array() != null;
         String path = prefix + field.name() + (field.array() != null ? "[*]" : "");
-        String array = field.array() == null ? null
-                : field.array().variable() ? field.array().lengthField() : String.valueOf(field.array().length());
         int elementSize = field.elementSize();
+        String array = field.array() == null ? null : arrayLength(field.array(), elementSize);
         Integer size = elementSize == FieldDef.VARIABLE ? null : elementSize;
 
         return switch (field.kind()) {
@@ -61,6 +61,12 @@ public final class IcdTreeBuilder {
                     "bitfield " + field.bitfield().type() + " " + field.bitfield().bitOrder(), null, 0, size, array, false,
                     inArray, bits(field, path, prefix, inArray));
         };
+    }
+
+    /** "4", "count", or "count/6" when the count field holds bytes (6-byte elements). */
+    private static String arrayLength(ArrayDef array, int elementSize) {
+        if (!array.variable()) return String.valueOf(array.length());
+        return array.lengthInBytes() ? array.lengthField() + "/" + elementSize : array.lengthField();
     }
 
     private static List<IcdTreeNode> bits(FieldDef field, String path, String prefix, boolean inArray) {

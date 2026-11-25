@@ -72,6 +72,14 @@ Decoded values and time-fix fields are addressed by path, as in the plain format
 `azimuth`, `tracks[2].range`. A `bits` field is addressed by its own name (`priority`, not
 `bits_priority.priority`). An array's length written before it is `<array>Length`.
 
+## Time fixing
+
+An annotation-style ICD works with time fixing like any other ICD (`docs/time-fix.md`): on the
+**Time fix** page, pick the base field and the fields to fix by their paths, including `bits` fields
+(`ltimeSec`) and fields inside arrays (`plots[*].seenSec`). A time kind applies to the **stored
+integer**: a `fixedPoint` time field works when its stored unit is the kind's unit (for example
+`lsb = 0.001` seconds is `REGULAR_MILLIS`); its `lsb` is not used for the time.
+
 ## Assumptions to confirm
 
 These points are not stated in the annotation document. Each is one setting or one rule in the code,
