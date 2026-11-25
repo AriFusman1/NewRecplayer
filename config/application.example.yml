@@ -26,3 +26,20 @@ s3:
   path-style: true
   # optional key prefix inside the bucket, e.g. "pcap-player/"
   prefix: ""
+
+# Optional: the organization's archive of recordings, a source for auto-tagging. READ-ONLY.
+# Environment variables: ARCHIVE_S3_ENDPOINT, ARCHIVE_S3_BUCKET, ARCHIVE_S3_ACCESS_KEY, ARCHIVE_S3_SECRET_KEY, ...
+archive-s3:
+  endpoint: "http://archive.example.internal:9000"
+  region: us-east-1
+  bucket: ""
+  access-key: "CHANGE_ME"
+  secret-key: "CHANGE_ME"
+  path-style: true
+  # optional: the folder the archive browser starts at
+  root-prefix: ""
+
+# auto-tag:
+#   max-files-per-run: 500
+#   workers: 4
+#   max-concurrent-jobs: 1
