@@ -41,11 +41,19 @@ final class TagJobRunner {
         this.clock = clock;
     }
 
+    /** How a run ended; the caller cleans up, then records it. */
+    record Outcome(ETagJobStatus status, String reason) {
+    }
+
     /**
-     * @param save writes the job to storage (status changes always, progress at most every 2 s)
+     * Processes every file. The final status is returned, not saved: the caller first deletes the
+     * temp folder, so a job shown as finished never has files left on disk.
+     *
+     * @param save writes the job to storage (RUNNING, then progress at most every 2 s)
+     * @return null when the job was cancelled while waiting in the queue (it is already CANCELLED)
      */
-    void run(LiveJob live, EConnectionMode mode, IcdDefinition icd, JobFileSource source, Consumer<TagJob> save) {
-        if (live.cancelled.get()) return; // cancelled while waiting in the queue: already marked CANCELLED
+    Outcome run(LiveJob live, EConnectionMode mode, IcdDefinition icd, JobFileSource source, Consumer<TagJob> save) {
+        if (live.cancelled.get()) return null;
         save.accept(live.update(job -> job.withStatus(ETagJobStatus.RUNNING, null, clock.millis(), 0)));
         ExecutorService pool = Executors.newFixedThreadPool(workers, task -> {
             Thread thread = new Thread(task, "tag-worker");
@@ -66,10 +74,10 @@ final class TagJobRunner {
                 pending.add(pool.submit(() -> processOne(live, context, index, input, save)));
             }
             awaitAll(pending);
-            finish(live, live.cancelled.get() ? ETagJobStatus.CANCELLED : ETagJobStatus.DONE, null, save);
+            return new Outcome(live.cancelled.get() ? ETagJobStatus.CANCELLED : ETagJobStatus.DONE, null);
         } catch (RuntimeException e) {
             LOG.log(Level.WARNING, "Tagging job " + live.snapshot().id() + " failed", e);
-            finish(live, ETagJobStatus.FAILED, String.valueOf(e.getMessage()), save);
+            return new Outcome(ETagJobStatus.FAILED, String.valueOf(e.getMessage()));
         } finally {
             pool.shutdownNow();
         }
@@ -94,9 +102,5 @@ final class TagJobRunner {
                 // a cancelled or failed task: its file has no result (FileTagger handles its own errors)
             }
         }
-    }
-
-    private void finish(LiveJob live, ETagJobStatus status, String reason, Consumer<TagJob> save) {
-        save.accept(live.update(job -> job.withStatus(status, reason, job.startedAtMs(), clock.millis())));
     }
 }

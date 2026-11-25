@@ -181,8 +181,9 @@ public class TagJobService {
 
         if (job.status() == ETagJobStatus.PENDING || job.status() == ETagJobStatus.UPLOADING) {
             // not running: nothing will finish it, so do it here
-            save(liveJob.update(current -> current.withStatus(ETagJobStatus.CANCELLED, null, current.startedAtMs(), clock.millis())));
-            cleanUp(liveJob);
+            deleteTree(liveJob.dir);
+            finish(liveJob, new TagJobRunner.Outcome(ETagJobStatus.CANCELLED, null));
+            live.remove(jobId);
         }
         return liveJob.snapshot();
     }
@@ -195,8 +196,9 @@ public class TagJobService {
             TagJob job = liveJob.snapshot();
             if (job.status() != ETagJobStatus.UPLOADING || now - job.createdAtMs() < settings.uploadExpireMs()) continue;
             liveJob.cancel();
-            save(liveJob.update(current -> current.withStatus(ETagJobStatus.FAILED, UPLOAD_ABANDONED, 0, now)));
-            cleanUp(liveJob);
+            deleteTree(liveJob.dir);
+            finish(liveJob, new TagJobRunner.Outcome(ETagJobStatus.FAILED, UPLOAD_ABANDONED));
+            live.remove(job.id());
         }
     }
 
@@ -247,19 +249,20 @@ public class TagJobService {
                 : (index, input) -> archive.store().open(input.path());
 
         queue.submit(() -> {
+            TagJobRunner.Outcome outcome;
+
             try {
-                if (category == null || icd == null) {
-                    save(liveJob.update(current -> current.withStatus(ETagJobStatus.FAILED, "the category or its ICD was deleted", 0, clock.millis())));
-                    return;
-                }
-                runner.run(liveJob, category.mode(), icd, missingAsFailures(liveJob, source), this::save);
+                outcome = category == null || icd == null
+                        ? new TagJobRunner.Outcome(ETagJobStatus.FAILED, "the category or its ICD was deleted")
+                        : runner.run(liveJob, category.mode(), icd, missingAsFailures(liveJob, source), this::save);
             } catch (RuntimeException e) {
                 LOG.log(Level.WARNING, "Tagging job " + job.id() + " failed", e);
-                save(liveJob.update(current -> current.withStatus(ETagJobStatus.FAILED, String.valueOf(e.getMessage()),
-                        current.startedAtMs(), clock.millis())));
-            } finally {
-                cleanUp(liveJob);
+                outcome = new TagJobRunner.Outcome(ETagJobStatus.FAILED, String.valueOf(e.getMessage()));
             }
+            // temp files first, then the final status: a finished job never has files left on disk
+            deleteTree(liveJob.dir);
+            if (outcome != null) finish(liveJob, outcome);
+            live.remove(job.id());
         });
     }
 
@@ -331,9 +334,8 @@ public class TagJobService {
         }
     }
 
-    private void cleanUp(LiveJob liveJob) {
-        if (liveJob.snapshot().status().finished()) live.remove(liveJob.snapshot().id());
-        deleteTree(liveJob.dir);
+    private void finish(LiveJob liveJob, TagJobRunner.Outcome outcome) {
+        save(liveJob.update(current -> current.withStatus(outcome.status(), outcome.reason(), current.startedAtMs(), clock.millis())));
     }
 
     static void deleteTree(Path dir) {
