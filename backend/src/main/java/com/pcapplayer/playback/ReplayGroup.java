@@ -19,6 +19,10 @@ import java.util.UUID;
  * <em>starts</em>: all waiting members are released at the same moment. A TCP client that
  * disconnects before the start is not ready any more and waits for a new connection.
  * <p>
+ * The start is one instant shared by every member ({@link #startAtNanos()}), a little after the
+ * last member got ready, so every member's thread is awake and waiting for it: each one takes it as
+ * its time zero, and how late the OS wakes each thread does not matter.
+ * <p>
  * Until the start the group stands or falls together: if one member fails, is stopped, or the TCP
  * clients don't all connect within the timeout, every member ends. After the start each member is
  * on its own again.
@@ -33,8 +37,13 @@ final class ReplayGroup {
     /** Record name of every TCP-client member, by session id. */
     private final Map<String, String> tcpClients = new LinkedHashMap<>();
 
+    /** How long after the last member got ready the group starts: time for every member's thread to wake. */
+    static final long START_LEAD_NANOS = 25_000_000;
+
     private final Set<String> ready = new HashSet<>();
     private boolean started;
+    /** The shared start instant ({@link System#nanoTime()}); set when the group starts. */
+    private long startAtNanos;
     /** The group ended before it started (a member stopped or failed, or the timeout); it will never start. */
     private boolean ended;
     /** Why it ended, when that was a failure (members then fail with it); null for a stop. */
@@ -62,8 +71,14 @@ final class ReplayGroup {
 
         if (!started && !ended && ready.size() == size) {
             started = true;
+            startAtNanos = System.nanoTime() + START_LEAD_NANOS;
             notifyAll(); // the start signal
         }
+    }
+
+    /** The instant every member starts at, as {@link System#nanoTime()}; valid once the group has started. */
+    synchronized long startAtNanos() {
+        return startAtNanos;
     }
 
     /** A TCP client lost its connection before the start: it is not ready until it connects again. */

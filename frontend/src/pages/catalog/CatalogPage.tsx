@@ -1,30 +1,39 @@
 import { useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ApiError, api } from '../../api/client';
-import { MODES, type Category, type Mode, type Tag } from '../../api/types';
+import { MODES, type Category, type IcdSummary, type Mode, type Tag } from '../../api/types';
 import { ModeBadge } from '../../components/common/Badges';
 import { Icon } from '../../components/common/Icon';
 import { Confirm } from '../../components/common/Modal';
+import { IcdsCard } from '../../components/icd/IcdsCard';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { useAction } from '../../state/feedback';
+import { useIcds } from '../../state/icds';
 import { findByName } from '../../util/names';
 import { DeleteCategoryDialog } from './DeleteCategoryDialog';
 
-/** Manage categories (name + fixed connection mode) and global tags. */
+/**
+ * Manage categories (name, fixed connection mode, ICD and its time fixing), global tags and ICDs.
+ */
 export function CatalogPage() {
   const { t } = useI18n();
+  const { icds, reload } = useIcds();
   return (
     <div>
       <div className="page-head"><h1>{t('nav.catalog')}</h1></div>
       <div className="grid-2" style={{ alignItems: 'start' }}>
-        <CategoriesCard />
-        <TagsCard />
+        <CategoriesCard icds={icds} />
+        <div className="stack-lg">
+          <TagsCard />
+          <IcdsCard icds={icds} reload={reload} />
+        </div>
       </div>
     </div>
   );
 }
 
-function CategoriesCard() {
+function CategoriesCard({ icds }: { icds: IcdSummary[] }) {
   const { t } = useI18n();
   const { catalog } = useCatalog();
   const { run } = useAction();
@@ -59,11 +68,32 @@ function CategoriesCard() {
         {catalog.categories.length === 0 && <p className="muted" style={{ padding: 12 }}>{t('cat.empty')}</p>}
         {catalog.categories.map((category) => (
           <EditableRow key={category.id} name={category.name} onRename={(newName) => api.renameCategory(category.id, newName)} onDelete={() => askDelete(category)}
-            extra={<><ModeBadge mode={category.mode} /><span className="small muted">{t('cat.records', { n: counts.get(category.id) ?? 0 })}</span></>} />
+            extra={<><ModeBadge mode={category.mode} /><span className="small muted">{t('cat.records', { n: counts.get(category.id) ?? 0 })}</span>
+              <CategoryIcd category={category} icds={icds} /></>} />
         ))}
       </div>
       {deleting && <DeleteCategoryDialog category={deleting.category} recordCount={deleting.recordCount} onClose={() => setDeleting(null)} />}
     </section>
+  );
+}
+
+/** The category's ICD (a dropdown) and the way to its time-fix settings. */
+function CategoryIcd({ category, icds }: { category: Category; icds: IcdSummary[] }) {
+  const { t } = useI18n();
+  const { run, busy } = useAction();
+  const navigate = useNavigate();
+  const known = !category.icdId || icds.some((icd) => icd.id === category.icdId);
+  return (
+    <>
+      <select className="select" style={{ width: 150 }} value={category.icdId ?? ''} disabled={busy} aria-label={t('cat.icd')}
+        title={t('cat.icd')} onChange={(e) => void run(() => api.setCategoryIcd(category.id, e.target.value || null))}>
+        <option value="">{t('cat.noIcd')}</option>
+        {!known && <option value={category.icdId ?? ''}>{category.icdId}</option>}
+        {icds.map((icd) => <option key={icd.id} value={icd.id}>{icd.name}</option>)}
+      </select>
+      <button className="btn ghost icon sm" title={t('cat.timeFix')} disabled={!category.icdId}
+        onClick={() => navigate(`/catalog/categories/${category.id}/timefix`)}><Icon name="clock" /></button>
+    </>
   );
 }
 

@@ -33,7 +33,7 @@ public class TaxonomyService {
 
         return catalog.mutate(() -> {
             checkCategoryName(trimmedName, null);
-            Category category = new Category(UUID.randomUUID().toString(), trimmedName, mode, System.currentTimeMillis());
+            Category category = new Category(UUID.randomUUID().toString(), trimmedName, mode, System.currentTimeMillis(), null);
             writeToStorage(() -> catalog.repo.putCategory(category));
             return category;
         });
@@ -46,7 +46,7 @@ public class TaxonomyService {
         return catalog.mutate(() -> {
             Category old = catalog.requireCategory(id);
             checkCategoryName(trimmedName, id);
-            Category category = new Category(id, trimmedName, old.mode(), old.createdAtMs());
+            Category category = new Category(id, trimmedName, old.mode(), old.createdAtMs(), old.icdId());
             writeToStorage(() -> catalog.repo.putCategory(category));
             return category;
         });
@@ -58,8 +58,9 @@ public class TaxonomyService {
     }
 
     /**
-     * Deletes the category. Its records move to {@code moveToId} (a category with the same mode), or,
-     * when that is null, are deleted together with any pcap files no longer used. Tags are global and stay.
+     * Deletes the category and its time-fix profile. Its records move to {@code moveToId} (a category
+     * with the same mode, whose own profile then applies to them), or, when that is null, are deleted
+     * together with any pcap files no longer used. Tags are global and stay.
      */
     public void deleteCategory(String id, String moveToId) {
         catalog.mutate(() -> {
@@ -72,7 +73,11 @@ public class TaxonomyService {
                 requireSameMode(category, catalog.requireCategory(moveToId));
                 records.moveAllInCategory(id, moveToId);
             }
-            writeToStorage(() -> catalog.repo.deleteCategory(id));
+
+            writeToStorage(() -> {
+                catalog.repo.deleteProfile(id);
+                catalog.repo.deleteCategory(id);
+            });
         });
     }
 

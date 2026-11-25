@@ -5,6 +5,7 @@ import com.pcapplayer.pcapProcessing.diagnostics.Warning;
 import com.pcapplayer.pcapProcessing.extract.TcpConnection.FlowKey;
 import com.pcapplayer.pcapProcessing.flow.TcpStreamReassembler;
 import com.pcapplayer.pcapProcessing.script.ReplayScript;
+import com.pcapplayer.pcapProcessing.script.ScriptFlow;
 import com.pcapplayer.pcapProcessing.script.ScriptStep;
 
 import java.util.ArrayList;
@@ -121,6 +122,7 @@ final class TcpMessageCollector implements MessageExtractor.Collector {
             if (!connection.stream.chunks().isEmpty()) withData.add(connection);
         }
         withData.sort(Comparator.comparingLong(connection -> connection.startTs));
+        for (int i = 0; i < withData.size(); i++) withData.get(i).flowId = i;
 
         List<ConnGroup> groups = groupOverlapping(withData);
         ScriptStepsBuilder script = buildSteps(groups);
@@ -131,10 +133,21 @@ final class TcpMessageCollector implements MessageExtractor.Collector {
         Warning.addCount(warnings, "OVERLAPPING_CONNECTIONS", overlapping);
 
         ReplayScript replayScript = new ReplayScript(filter.mode(), script.steps, script.messages, script.bytes,
-                filter.durationNanos());
+                filter.durationNanos(), flowsOf(withData));
         boolean empty = script.messages == 0;
         return new ExtractionResult(replayScript, empty ? 0 : script.first, empty ? 0 : script.last,
                 withData.size(), otherProtocol, warnings);
+    }
+
+    /** One flow per connection with data, numbered in start order. */
+    private static List<ScriptFlow> flowsOf(List<TcpConnection> withData) {
+        List<ScriptFlow> flows = new ArrayList<>();
+
+        for (TcpConnection connection : withData) {
+            flows.add(new ScriptFlow(connection.flowId, true, connection.key.srcIp(), connection.key.srcPort(),
+                    connection.key.dstIp(), connection.key.dstPort()));
+        }
+        return flows;
     }
 
     /** Splits connections (sorted by start) into groups whose lifetimes overlap. */
@@ -184,11 +197,11 @@ final class TcpMessageCollector implements MessageExtractor.Collector {
 
         for (TcpConnection connection : group.members()) {
             for (TcpStreamReassembler.Gap gap : connection.stream.gaps()) {
-                merged.add(new ScriptStep.Gap(filter.offsetNanos(gap.tsNanos()), gap.bytes()));
+                merged.add(new ScriptStep.Gap(filter.offsetNanos(gap.tsNanos()), gap.bytes(), connection.flowId));
             }
 
             for (TcpStreamReassembler.Chunk chunk : connection.stream.chunks()) {
-                merged.add(new ScriptStep.Send(filter.offsetNanos(chunk.tsNanos()), chunk.data()));
+                merged.add(new ScriptStep.Send(filter.offsetNanos(chunk.tsNanos()), chunk.data(), connection.flowId));
             }
         }
         merged.sort(Comparator.comparingLong(ScriptStep::offsetNanos)); // stable

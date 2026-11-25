@@ -2,6 +2,7 @@ package com.pcapplayer;
 
 import com.pcapplayer.configuration.AppConfig;
 import com.pcapplayer.configuration.ConfigLoader;
+import com.pcapplayer.icd.loading.IcdRegistry;
 import com.pcapplayer.pcapProcessing.extract.CachingExtractor;
 import com.pcapplayer.pcapProcessing.extract.ExtractionSettings;
 import com.pcapplayer.pcapProcessing.extract.MessageExtractor;
@@ -22,6 +23,7 @@ import io.vertx.core.VertxOptions;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -59,8 +61,8 @@ public final class Main {
 
         // The catalog notifies the hub of changes, and the hub stores history in the catalog.
         AtomicReference<LiveHub> hubRef = new AtomicReference<>();
-        CatalogService catalog = new CatalogService(repo, uploads, cache, extractor,
-                config.histogram().maxBins(), () -> hubRef.get().catalogChanged());
+        CatalogService catalog = new CatalogService(repo, uploads, cache, extractor, IcdRegistry.withBuiltIns(),
+                config.histogram().maxBins(), Clock.systemUTC(), () -> hubRef.get().catalogChanged());
         LiveHub hub = new LiveHub(entry -> storeHistory(catalog, entry));
         hubRef.set(hub);
         ReplayEngine engine = new ReplayEngine(catalog.scriptSource(), hub,
@@ -136,12 +138,8 @@ public final class Main {
 
     private static void registerShutdownHook(Vertx vertx, ReplayEngine engine) {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            engine.stopAll("server shutdown");
-
-            try {
-                Thread.sleep(SHUTDOWN_GRACE_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            if (!engine.shutdown("server shutdown", SHUTDOWN_GRACE_MS)) {
+                LOG.warning("Some replays had not ended " + SHUTDOWN_GRACE_MS + " ms after being stopped");
             }
             vertx.close();
         }));

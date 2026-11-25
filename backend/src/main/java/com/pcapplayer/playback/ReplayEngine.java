@@ -10,6 +10,7 @@ import com.pcapplayer.playback.transport.Transport;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -22,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
 
@@ -36,9 +38,28 @@ public class ReplayEngine {
      * @param groupConnectTimeoutMs how long a group waits for its TCP clients to connect
      * @param tcpKeepTrying         TCP-server replays play without a connection and keep retrying it
      * @param tcpRetryIntervalMs    the retry interval
+     * @param clock                 wall-clock time for time fixing (UTC); injectable for tests
      */
     public record Settings(int connectTimeoutMs, int maxActiveReplays, long groupConnectTimeoutMs, boolean tcpKeepTrying,
-                           long tcpRetryIntervalMs) {
+                           long tcpRetryIntervalMs, Clock clock) {
+
+        private static final int DEFAULT_MAX_ACTIVE_REPLAYS = 10;
+        private static final long DEFAULT_GROUP_CONNECT_TIMEOUT_MS = 300_000;
+        private static final long DEFAULT_TCP_RETRY_INTERVAL_MS = 1_000;
+
+        public Settings(int connectTimeoutMs, int maxActiveReplays, long groupConnectTimeoutMs, boolean tcpKeepTrying,
+                        long tcpRetryIntervalMs) {
+            this(connectTimeoutMs, maxActiveReplays, groupConnectTimeoutMs, tcpKeepTrying, tcpRetryIntervalMs, Clock.systemUTC());
+        }
+
+        /** Default limits, strict TCP (no keep-trying): for tests that only care about the clock. */
+        public Settings(int connectTimeoutMs, Clock clock) {
+            this(connectTimeoutMs, DEFAULT_MAX_ACTIVE_REPLAYS, DEFAULT_GROUP_CONNECT_TIMEOUT_MS, false, DEFAULT_TCP_RETRY_INTERVAL_MS, clock);
+        }
+
+        public Settings(int connectTimeoutMs) {
+            this(connectTimeoutMs, Clock.systemUTC());
+        }
     }
 
     private static final int PREFETCH_THREADS = 2;
@@ -54,7 +75,6 @@ public class ReplayEngine {
     /** Reserved targets ("ip:port" or "listen:port") and the session holding each. */
     private final ConcurrentMap<String, ReplaySession> locks = new ConcurrentHashMap<>();
 
-    /** Low-priority threads that prepare upcoming playlist items ahead of time (warming the script cache). */
     /** The global limit; a slot is taken when a replay starts and given back in {@link #finished}. */
     private final ActiveReplays activeReplays;
 
@@ -65,6 +85,7 @@ public class ReplayEngine {
         return thread;
     });
 
+    /** Low-priority threads that prepare upcoming playlist items ahead of time (warming the script cache). */
     private final ExecutorService prefetcher = Executors.newFixedThreadPool(PREFETCH_THREADS, task -> {
         Thread thread = new Thread(task, "replay-prefetch");
         thread.setDaemon(true);
@@ -72,10 +93,21 @@ public class ReplayEngine {
         return thread;
     });
 
+    /** Creates each session's thread; replaceable so tests can make thread creation fail. */
+    private final ThreadFactory replayThreads;
+
+    /** While shutting down, stop the replays again this often, in case one was starting just then. */
+    private static final long SHUTDOWN_SLICE_MS = 50;
+
     public ReplayEngine(ScriptSource source, ReplayListener listener, Settings settings) {
+        this(source, listener, settings, Thread::new);
+    }
+
+    ReplayEngine(ScriptSource source, ReplayListener listener, Settings settings, ThreadFactory replayThreads) {
         this.source = source;
         this.listener = listener;
         this.settings = settings;
+        this.replayThreads = replayThreads;
         this.activeReplays = new ActiveReplays(settings.maxActiveReplays());
         NetWarmup.run();
     }
@@ -96,7 +128,8 @@ public class ReplayEngine {
      * Starts a session. The first item's target is reserved (and for TCP_CLIENT its port bound)
      * before this returns, so conflicts are reported to the caller right away.
      *
-     * @throws ReplayFailure TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET
+     * @throws ReplayFailure ACTIVE_LIMIT, TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET,
+     *                       START_FAILED, SHUTTING_DOWN
      */
     public SessionView start(List<ItemRequest> requests, boolean playlist, String startedBy) {
         return start(requests, playlist, null, startedBy);
@@ -110,11 +143,11 @@ public class ReplayEngine {
 
         try {
             reserveFirstItem(session);
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | Error e) {
             activeReplays.release(1);
             throw e;
         }
-        launch(session);
+        launch(session); // gives everything back itself if the thread cannot start
         return session.view();
     }
 
@@ -124,7 +157,8 @@ public class ReplayEngine {
      * {@link ReplayGroup}). Slots and targets are taken for all of them first; if any cannot be,
      * nothing starts, and a target error names the record ({@code params.record}).
      *
-     * @throws ReplayFailure GROUP_TOO_SMALL (400), ACTIVE_LIMIT, DUPLICATE_TARGET, TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND, INVALID_TARGET
+     * @throws ReplayFailure GROUP_TOO_SMALL (400), ACTIVE_LIMIT, DUPLICATE_TARGET, TARGET_BUSY, LISTEN_FAILED, RECORD_NOT_FOUND,
+     *                       INVALID_TARGET, START_FAILED, SHUTTING_DOWN
      */
     public List<SessionView> startGroup(List<ItemRequest> requests, String startedBy) {
         if (requests.size() < MIN_GROUP_SIZE) { // one recording is played with Play, not Play together
@@ -134,6 +168,7 @@ public class ReplayEngine {
         activeReplays.take(requests.size()); // all or nothing
         List<ReplaySession> members = new ArrayList<>();
         Set<String> targets = new HashSet<>();
+        ReplayGroup group;
 
         try {
             for (ItemRequest request : requests) {
@@ -152,16 +187,36 @@ public class ReplayEngine {
                 }
                 members.add(session);
             }
-        } catch (RuntimeException e) {
+            group = new ReplayGroup(members);
+            members.forEach(session -> session.joinGroup(group));
+            if (group.hasTcpClients()) scheduleConnectTimeout(group, startedBy, members.get(0).id);
+        } catch (RuntimeException | Error e) {
             members.forEach(ReplaySession::releasePreAcquired); // all or nothing
             activeReplays.release(requests.size());
             throw e;
         }
-        ReplayGroup group = new ReplayGroup(members);
-        members.forEach(session -> session.joinGroup(group));
-        if (group.hasTcpClients()) scheduleConnectTimeout(group, startedBy, members.get(0).id);
-        members.forEach(this::launch);
+        launchGroup(members, group);
         return members.stream().map(ReplaySession::view).toList();
+    }
+
+    /**
+     * Starts every member's thread. If one cannot start, the group never will: members already
+     * running end with GROUP_FAILED (each giving back its own slot), and the rest are given back here.
+     */
+    private void launchGroup(List<ReplaySession> members, ReplayGroup group) {
+        for (int index = 0; index < members.size(); index++) {
+            ReplaySession member = members.get(index);
+
+            try {
+                launch(member);
+            } catch (ReplayFailure failure) {
+                List<ReplaySession> notLaunched = members.subList(index + 1, members.size());
+                notLaunched.forEach(ReplaySession::releasePreAcquired);
+                activeReplays.release(notLaunched.size());
+                group.memberEnded(member, null, failure);
+                throw naming(failure, member.firstItem().info.name());
+            }
+        }
     }
 
     /** If the group is still waiting for its TCP clients when the timeout expires, it fails (announced once). */
@@ -191,18 +246,35 @@ public class ReplayEngine {
 
         try {
             if (first.info.mode() == EConnectionMode.TCP_CLIENT) transport = session.createTransport(first);
-        } catch (ReplayFailure failure) {
+        } catch (RuntimeException | Error e) {
             release(key, session);
-            throw failure;
+            throw e;
         }
         session.preAcquired(key, transport);
     }
 
+    /**
+     * Starts the session's thread, which from then on gives back its slot, targets and transport
+     * when it ends ({@link #finished}). If the thread cannot start, that is done here instead.
+     *
+     * @throws ReplayFailure START_FAILED
+     */
     private void launch(ReplaySession session) {
         sessions.put(session.id, session);
-        Thread thread = new Thread(session, "replay-" + session.id.substring(0, 8));
-        thread.setPriority(Thread.MAX_PRIORITY);
-        thread.start();
+
+        try {
+            Thread thread = replayThreads.newThread(session);
+            thread.setName("replay-" + session.id.substring(0, 8));
+            thread.setPriority(Thread.MAX_PRIORITY);
+            thread.start();
+        } catch (RuntimeException | Error e) { // e.g. OutOfMemoryError: unable to create native thread
+            sessions.remove(session.id);
+            session.releasePreAcquired();
+            locks.values().removeIf(holder -> holder == session);
+            activeReplays.release(1);
+            changed();
+            throw new ReplayFailure("START_FAILED", ReplayFailure.reason(e), "Could not start the replay thread: " + e);
+        }
         changed();
     }
 
@@ -241,9 +313,35 @@ public class ReplayEngine {
         return !sessions.isEmpty();
     }
 
-    /** Stops everything (shutdown). */
+    /** Stops every running replay. */
     public void stopAll(String requestedBy) {
         snapshot().forEach(session -> session.stop(requestedBy));
+    }
+
+    /**
+     * Server shutdown: refuses new replays, stops every running one and waits up to {@code graceMs}
+     * for them to end (each writes its history entry and gives back its slot), then stops the
+     * engine's own threads.
+     *
+     * @return true if every replay ended in time
+     */
+    public boolean shutdown(String requestedBy, long graceMs) {
+        activeReplays.close();
+        long end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(graceMs);
+        boolean idle = activeReplays.active() == 0;
+
+        try {
+            while (!idle && System.nanoTime() < end) {
+                stopAll(requestedBy); // again each round: a replay that was just starting is stopped too
+                long leftMs = Math.max(1, TimeUnit.NANOSECONDS.toMillis(end - System.nanoTime()));
+                idle = activeReplays.awaitIdle(Math.min(SHUTDOWN_SLICE_MS, leftMs));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        timers.shutdownNow();
+        prefetcher.shutdownNow();
+        return idle;
     }
 
     private ReplaySession require(String sessionId) {

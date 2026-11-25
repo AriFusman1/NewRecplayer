@@ -13,6 +13,8 @@ export interface Category {
   name: string;
   mode: Mode;
   createdAtMs: number;
+  /** The ICD its messages follow; null when none is set. */
+  icdId: string | null;
 }
 
 export interface Tag {
@@ -227,4 +229,106 @@ export interface ItemRequest {
   host: string | null;
   port: number;
   sleepAfterMs: number;
+}
+
+// ------------------------------------------------------------------ ICDs and time fixing
+
+export type TimeKind = 'REGULAR_SECONDS' | 'REGULAR_MILLIS' | 'LTIME' | 'GPS';
+export const TIME_KINDS: TimeKind[] = ['REGULAR_SECONDS', 'REGULAR_MILLIS', 'LTIME', 'GPS'];
+
+export interface IcdSummary {
+  id: string;
+  name: string;
+  /** JAVA ICDs are read-only. */
+  source: 'JAVA' | 'JSON';
+  messageCount: number;
+  /** Ids of the categories using it. */
+  usedBy: string[];
+}
+
+export type TreeNodeKind = 'HEADER' | 'STRUCT' | 'PRIMITIVE' | 'ENUM' | 'STRING' | 'BITFIELD' | 'BIT' | 'PADDING';
+
+export interface IcdTreeNode {
+  name: string;
+  /** Array elements are written [*], e.g. targets[*].seenGps. */
+  path: string;
+  kind: TreeNodeKind;
+  type: string;
+  storageType: string | null;
+  bitWidth: number;
+  /** Bytes of one element; null when it depends on a count. */
+  size: number | null;
+  /** Array length (a number or the count field), or null. */
+  array: string | null;
+  /** Can hold a time. */
+  numeric: boolean;
+  inArray: boolean;
+  children: IcdTreeNode[];
+}
+
+export interface IcdTreeMessage {
+  opcode: number;
+  name: string;
+  size: number | null;
+  /** The header first. */
+  fields: IcdTreeNode[];
+}
+
+export interface IcdTree {
+  id: string;
+  name: string;
+  byteOrder: 'BIG_ENDIAN' | 'LITTLE_ENDIAN';
+  messages: IcdTreeMessage[];
+}
+
+export interface TimeFieldRef {
+  path: string;
+  kind: TimeKind;
+}
+
+export interface MessageTimeFix {
+  opcode: number;
+  base: TimeFieldRef | null;
+  fields: TimeFieldRef[];
+}
+
+export interface TimeFixProfile {
+  categoryId: string;
+  icdId: string;
+  updatedAtMs: number;
+  messages: MessageTimeFix[];
+}
+
+export interface TimeFixView {
+  categoryId: string;
+  /** The category's ICD; null when none is set. */
+  icdId: string | null;
+  profile: TimeFixProfile | null;
+  tree: IcdTree | null;
+  warnings: Problem[];
+}
+
+export interface TimeFixSaveResult {
+  profile: TimeFixProfile;
+  warnings: Problem[];
+}
+
+/** Debug output of GET /api/records/{id}/decode. */
+export interface DecodeReport {
+  icdId: string;
+  scriptSteps: number;
+  stats: { messages: number; problems: Record<string, number>; skippedBytes: number };
+  counts: { opcode: number; name: string; count: number }[];
+  messages: {
+    opcode: number;
+    name: string;
+    flow: string;
+    captureTsUs: number;
+    firstStep: number;
+    lastStep: number;
+    length: number;
+    trailingBytes: number;
+    fields: Record<string, unknown>;
+    locations: Record<string, { step: number; offset: number; length: number }[]>;
+  }[];
 }

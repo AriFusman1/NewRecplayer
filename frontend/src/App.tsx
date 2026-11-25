@@ -10,6 +10,7 @@ import { CatalogPage } from './pages/catalog/CatalogPage';
 import { HistoryPage } from './pages/history/HistoryPage';
 import { PlayerPage } from './pages/player/PlayerPage';
 import { PlayingPage } from './pages/playing/PlayingPage';
+import { TimeFixPage } from './pages/timefix/TimeFixPage';
 import { UploadPage } from './pages/upload/UploadPage';
 import { CatalogProvider } from './state/catalog';
 import { FeedbackProvider } from './state/feedback';
@@ -55,6 +56,7 @@ function Shell() {
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/catalog" element={<CatalogPage />} />
+          <Route path="/catalog/categories/:categoryId/timefix" element={<TimeFixPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

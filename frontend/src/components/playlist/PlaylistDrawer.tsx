@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { useAction, useFeedback } from '../../state/feedback';
 import { useNickname } from '../../state/nickname';
+import { useRoom } from '../../state/live';
 import { usePlaylist, type DraftItem } from '../../state/playlist';
 import { formatMs } from '../../util/time';
 import { msToSeconds, secondsToMs, targetValid, toItemRequest } from '../../util/target';
@@ -43,6 +44,8 @@ export function PlaylistDrawer({ onClose }: { onClose: () => void }) {
   const rows = items.map((draftItem) => ({ draftItem, record: recordById.get(draftItem.recordId), mode: modeOf(draftItem.recordId) }));
   const anyMissing = rows.some((row) => !row.record || !row.mode);
   const allValid = rows.length > 0 && !anyMissing && rows.every((row) => targetValid(row.mode!, row.draftItem.host, row.draftItem.port));
+
+  const full = useRoom().blockedFor(1);
 
   const play = async () => {
     // History records the saved playlist's name (an unsaved draft has none)
@@ -115,7 +118,10 @@ export function PlaylistDrawer({ onClose }: { onClose: () => void }) {
         <div className="drawer-foot">
           <button className="btn ghost" disabled={!items.length} onClick={clear}>{t('playlist.clear')}</button>
           <div className="grow" />
-          <button className="btn primary" disabled={!allValid || busy} onClick={play}><Icon name="play" size={12} />{t('playlist.play')}</button>
+          {/* a playlist plays one item at a time, so it needs one free slot */}
+          <span title={full ?? undefined}>
+            <button className="btn primary" disabled={!allValid || busy || full !== null} onClick={play}><Icon name="play" size={12} />{t('playlist.play')}</button>
+          </span>
         </div>
       </aside>
 

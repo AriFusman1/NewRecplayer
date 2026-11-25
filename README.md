@@ -278,15 +278,22 @@ through to the backend on port 8080.
    - **Select** several records (or all shown), then act on all of them from the bar that appears:
      - **Edit tags…** adds and removes tags on all of them at once.
      - **Play together** (2 or more records) asks for each one's target. After starting, the app
-       switches to the **Now playing** tab. They all start at the same moment; if any target can't
-       be used, none of them start. If some of them are **TCP clients**, nothing plays until every
+       switches to the **Now playing** tab. They all start at the same moment: once every record is
+       ready (loaded, its time fixing prepared, a TCP server's connection made), the group picks one
+       start instant 25 ms ahead and every record takes it as its time zero, so their first messages
+       leave together (measured within about 0.3 ms for 10 records on one machine). If any target
+       can't be used, none of them start. If some of them are **TCP clients**, nothing plays until every
        one of those services has connected ("Waiting for connection: 1/3 TCP clients connected");
        then all of them start together. A client that disconnects before the start is waited for
        again. Stop, a failed record, or the connect timeout (`replay.group-connect-timeout-ms`) ends
        the whole group. The server refuses a group of fewer than 2 with a 400.
    - **Limit**: at most `replay.max-active-replays` (default 10) replays run at once, for all users
-     together; a replay waiting for a connection counts. Now Playing shows "7/10 in use", and a
-     start that does not fit is refused as a whole ("There are 3 free slots and you tried to start 5").
+     together; a replay waiting for a connection counts, and a playlist counts as one. Now Playing
+     shows "7/10 in use". When every slot is taken, **Play** (on the cards, in the Play dialog and in
+     the playlist) is disabled and says the server is full, not broken; **Play together** is
+     disabled while more records are selected than there are free slots, and says how many are free.
+     There is no queue: a start that does not fit (two users pressing Play at the same moment) is
+     refused at once and as a whole, with the same explanation (`ACTIVE_LIMIT`, HTTP 409).
 4. **Now playing** (a tab of its own; the thin bar at the bottom shows usage and opens it): live
    progress for every running replay. Leaving the tab does not stop anything. Click or drag
    on the graph to jump. Stop a replay, or edit the upcoming items of a playlist. Records played
@@ -297,6 +304,17 @@ through to the backend on port 8080.
    Start and End (the same calendar and clock as everywhere else), `100` / `>100` / `<50` /
    `100-500` for Messages, and the Result options. Filters live in the URL, so a filtered view can
    be shared.
+6. **Time fixing** (optional): rewrite the time fields inside messages to the moment they are sent.
+   - On **Categories & Tags**, upload an ICD in the **ICDs** card. The file is JSON, in the format
+     described in [docs/icd-json-format.md](docs/icd-json-format.md); an invalid file is rejected with
+     every problem listed. Then choose the ICD in the category's dropdown.
+   - Click the clock button next to the category to open its **Time fix** page. Open a message type,
+     choose one **base** field and tick the fields to **fix**, giving each its time kind
+     (Regular s/ms, LTime, GPS). Fields inside arrays are chosen once and fixed in every element.
+     Save.
+   - Every replay of the category's records now fixes those fields. The time kinds and the exact
+     rules are in [docs/time-fix.md](docs/time-fix.md). To check an ICD against a real record, open
+     `/api/records/{id}/decode`.
 
 ---
 
@@ -365,7 +383,7 @@ All keys:
 **Memory**: JVM options go in `JAVA_OPTS` (the image uses `-XX:MaxRAMPercentage=75`). A running
 replay holds its record's payload in memory, and up to `extraction.cache-max-bytes` of parsed
 captures are kept for reuse. Size the container for the largest records you play at the same time
-plus that cache.
+plus that cache (see [Resources and behavior under load](#resources-and-behavior-under-load)).
 
 **Logging** uses `java.util.logging`. The AWS SDK logs through SLF4J, which has no binding here, so
 SLF4J prints one "no providers" line at startup and the SDK stays quiet.
@@ -424,6 +442,63 @@ docker run -p 8080:8080 -v "$PWD/config/application.yml:/app/config/application.
   listen on the ports users choose, so those must be reachable from the service under test
   (Service/NodePort or pod networking).
 - **No capture privileges** are needed: files are only read, never captured live.
+- **Resources**: see below.
+
+### Resources and behavior under load
+
+The app runs as one pod, and at most `replay.max-active-replays` (default 10) replays run in it at
+once. Each running replay is one thread. To keep send times precise, a thread parks until just
+before a message is due and then **spin-waits** the last stretch (0.2–10 ms, adapted to how late
+the OS wakes threads). Spinning keeps a core busy, so only *half the CPUs the JVM may use*
+(rounded down) spin at the same time; the others park instead and are late by the OS wake-up time,
+which is well under 1 ms on Linux. The JVM takes its CPU count from the container's CPU limit, so
+a 1-CPU pod does not spin at all and a 2-CPU pod spins one thread at a time. Records started with
+Play together are the exception: every member spins for the shared start instant.
+
+Measured with `tools/load_test.py` (10 replays at once, 4 UDP + 3 TCP server + 3 TCP client, each
+500 messages/s for 15 s, on a Windows laptop with the JVM pinned to the given CPUs; Windows wakes
+parked threads much later than Linux, so on a Linux pod the timing is better):
+
+| CPUs | Version | Server CPU | Arrival vs. due time: median / p99 / worst | `GET /health/live` median / p99 |
+|---|---|---|---|---|
+| 2 | before (every thread spins) | 187% (both CPUs full) | 45 / 233 / 345 ms | 39 / 830 ms |
+| 2 | now | 50% | 5 / 25 / 53–112 ms | 2–6 / 135–150 ms |
+| 1 | now, after JIT warm-up | 10% | 5 / 17 / 53 ms | 21 / 153 ms |
+
+Every message arrived in every run, and an 11th replay was refused with `ACTIVE_LIMIT`. On an idle
+server the probe's own p99 is ~30 ms. The heap held ~45 MB during the run (process ~150 MB):
+the replay engine's own memory is small, the script payloads are what grows.
+
+**Recommended pod resources** for the default limit of 10:
+
+```yaml
+resources:
+  requests: { cpu: "1",  memory: 1Gi }
+  limits:   { cpu: "2",  memory: 2Gi }   # 75% of it (MaxRAMPercentage) is the heap
+```
+
+- **CPU**: 1 CPU is enough for 10 replays; 2 lets one replay at a time spin for sub-millisecond
+  precision and keeps the UI responsive while records are parsed. Do not set the limit far below
+  the request: CFS throttling stalls every thread, the replays included.
+- **Memory**: a replay holds its record's payload; add the largest records played at the same time
+  to `extraction.cache-max-bytes` (default 256 MB) and ~300 MB for the JVM. Raise the limit for
+  records of hundreds of MB.
+- Thread priorities (replay threads run at maximum priority) are ignored by the JVM on Linux unless
+  it runs as root with `-XX:ThreadPriorityPolicy=1`, so they do not starve anything; replays waiting
+  for a connection or a group start block without using CPU.
+
+To measure your own setup, run the server (pinning its CPUs if you like) and in another terminal:
+
+```bash
+python3 tools/load_test.py --base http://localhost:8080 --replays 10 --rate 500 --seconds 20 --pid <server pid>
+```
+
+It writes and uploads three captures, starts the replays against local sockets, tries one more,
+probes `/health/live` (event loop) and `/api/sessions` (worker pool) every 100 ms, and prints, per
+replay, how late each message arrived relative to the first, plus HTTP latencies and the server's
+CPU (via `psutil` if installed, `/proc` on Linux, or the Windows API). Simulate a pod's CPU limit
+with `taskset -c 0,1 java -XX:ActiveProcessorCount=2 -jar …` (Linux) or
+`start "" /affinity 3 java -XX:ActiveProcessorCount=2 -jar …` (Windows).
 
 ---
 
@@ -443,12 +518,28 @@ backend/                          Maven project; all versions pinned in pom.xml 
       flow/                rebuilding flows: TCP stream reassembly, UDP de-duplication
       summary/             the upload summary: CaptureScanner, CaptureSummary, Timeline (graph data)
       extract/             packets → replay script: MessageExtractor, its filter/settings/result, CachingExtractor
-      script/              the replay script itself: ReplayScript, ScriptStep, EConnectionMode, Histogram
+      script/              the replay script itself: ReplayScript, ScriptStep, ScriptFlow, EConnectionMode, Histogram
       diagnostics/         Warning: problems found in a capture (truncation, gaps, duplicates, ...)
+    icd/                   ICDs (interface control documents) for decoding messages; see docs/icd-json-format.md
+      model/               the format-agnostic model: IcdDefinition, HeaderDef, MessageDef, FieldDef, ...
+      annotations/         @Icd, @IcdMessage, @IcdField, ... for ICDs written as Java classes
+      loading/             AnnotationIcdLoader, JsonIcdLoader, IcdModelValidator (rules shared by both), BuiltInIcds,
+                           IcdRegistry (the ICDs the server knows)
+      decode/              script → messages: ScriptDecoder, FlowFramer (per-flow message reassembly),
+                           MessageDecoder (bytes → field values and positions), DecodedMessage, DecodeStats
+      analysis/            MessageAnalyzer (consumer of decoded messages), MessageCountAnalyzer, DecodeReport
+      timefix/             time fixing: ETimeKind, TimeCodec (value ↔ instant), TimeAnchoring, FieldWriter,
+                           TimeFixPlanner (decoded messages + profile → PatchPlan), MessagePatch, StepCopies
+      profile/             TimeFixProfile: per category, the base field and fields to fix of each message;
+                           TimeFixProfileValidator
+      tree/                IcdTree: an ICD's structure for the UI (paths, types, sizes, which fields hold numbers)
+      versions/            one sub-package per ICD version written in Java
     recordManagement/
       service/             business rules: RecordService (preview, create, edit, delete), TaxonomyService
                            (categories, tags), PlaylistService, RecordScriptSource (records → replay
-                           scripts), CatalogService (entry point), CatalogSupport (shared lock and helpers)
+                           scripts), IcdService (ICDs, category → ICD), TimeFixService (profiles),
+                           RecordDecodeService (debug decode), CatalogService (entry point),
+                           CatalogSupport (shared lock and helpers)
       model/               the stored data: Record, Category, Tag, PcapFile, SavedPlaylist, RecordStats
       repository/          CatalogRepository: all metadata in memory, written through to storage
     uploadHandling/        UploadService: uploads in progress (hash and scan)
@@ -467,7 +558,7 @@ backend/                          Maven project; all versions pinned in pom.xml 
 frontend/src/
   api/                     client.ts (one function per endpoint), types.ts (mirrors the backend JSON), live.ts (WebSocket)
   state/                   React contexts: catalog, live sessions, playlist draft, upload in progress, feedback (popups, toasts, useAction)
-  pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/
+  pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/, playing/, timefix/
   components/
     common/                small reusable pieces: Modal, Icon, Badges, Stat, TimeField, Sortable (drag-to-reorder)
     layout/                app frame: Header, BottomNav, FeedbackView (toasts, popups), NicknameDialog
@@ -475,13 +566,19 @@ frontend/src/
     records/               RecordCard, EditRecordDialog, RecordPicker, BulkTagDialog, CategorySelect and TagInput (pick or create in place)
     playback/              NowPlaying, LiveView, PlayDialog, TargetFields
     playlist/              PlaylistDrawer
-  util/                    plain functions: time (date-fns), targets, record filters, browser storage
+    icd/                   IcdsCard (upload, list, download, delete ICDs)
+    timefix/               MessageTimeFixCard (one message's field tree with base / fix / kind)
+  util/                    plain functions: time (date-fns), targets, record filters, browser storage,
+                           timefix (editing a time-fix profile draft)
   i18n/                    i18next setup plus en.ts and he.ts (Hebrew must have every English key, or it does not compile)
 
+docs/                             icd-json-format.md (ICD format), time-fix.md (time kinds and formulas),
+                                  time-fix-plan.md (design of time fixing)
 config/application.example.yml    template for your configuration (S3 address and secrets)
 tools/gen_samples.py              generates test captures with known expected output
 tools/gen_demo.py                 writes three plain demo captures (TCP server, TCP client, UDP) to try by hand
 tools/peer.py                     a stand-in service on this machine that prints what a replay delivers
+tools/load_test.py                10 replays at once against a running server: timing, HTTP latency, CPU
 Dockerfile, docker-compose.yml
 ```
 
@@ -513,6 +610,8 @@ Dockerfile, docker-compose.yml
   dictionaries.
 - **A storage backend**: implement `persistence/BlobStore`.
 - **A link type**: one case in `pcapProcessing/decode/LinkDecoder`.
+- **An ICD**: write it in JSON ([format](docs/icd-json-format.md)), or as annotated Java classes in
+  `icd/versions/<version>/` with the holder class listed in `icd/loading/BuiltInIcds`.
 - **An endpoint**: add a method to the right service, a route in the matching `web/routes/*Routes` class, and a
   function in `frontend/src/api/client.ts`.
 
@@ -567,7 +666,15 @@ Receive-side artifacts are handled:
   relative to the previous send, so there is no drift.
 - The clock parks, then spin-waits the last stretch. The spin margin adapts to how late the OS
   wakes threads, so it spins only as long as this host needs. On a laptop, sends on a 1 ms grid
-  land within ~2 µs; with 20–200 ms gaps the worst case is ≈ 1 ms.
+  land within ~2 µs; with 20–200 ms gaps the worst case is ≈ 1 ms. Only half the CPUs spin at once
+  (see [Resources and behavior under load](#resources-and-behavior-under-load)).
+- **Slots**: a replay takes its slot before it starts (a group takes one per record, all or none)
+  and gives it back exactly once, in its thread's last step, however it ends: completed, stopped,
+  failed, a failed group member or connect timeout, or stopped before its thread ran. If its thread
+  cannot even be created (`START_FAILED`, HTTP 503), the slot, target and port are given back at
+  once, and in a group the members already running end with `GROUP_FAILED`. On shutdown the
+  engine refuses new replays (`SHUTTING_DOWN`), stops all and waits up to 1 s for them. Giving back
+  more slots than were taken is logged as a warning.
 - **Jumping** (seek): playback continues from the chosen point at normal speed. Messages jumped
   over are not sent, and jumping back re-sends from that point. A TCP connection stays open across
   a jump.
@@ -581,6 +688,34 @@ Receive-side artifacts are handled:
 - A replay runs to the end of the selected range, then reports "completed".
 - **Playlists** run items in order with a pause after each. While one item plays, the next is
   prepared in the background. A failed item is recorded in history and the playlist continues.
+- **Time fixing** (categories with an ICD and a time-fix profile; see [docs/time-fix.md](docs/time-fix.md)):
+  - While a record is prepared, its messages are decoded and a patch plan is built. The plan is
+    cached, so replaying the record again does not decode again.
+  - Right before a message's first packet is sent, its time fields get the real send time, written
+    into copies of its packets. The cached script is never modified.
+  - Packets without time fields are sent as they are, and records without a profile take the
+    unchanged code path.
+  - After a jump into the middle of a message, the message is patched at its first remaining packet.
+
+### Decoding messages (ICD)
+
+A category can have an ICD (see [docs/icd-json-format.md](docs/icd-json-format.md)). Its records can
+then be cut into messages and decoded:
+
+- The decoder reads the record's **replay script**: the same bytes playback sends, with IP fragments
+  and TCP segments already reassembled. Each `Send` step remembers its recorded flow (a TCP
+  connection, or a UDP source/destination pair).
+- Per flow, the bytes are cut into messages using the header's opcode and length. A message may span
+  several packets, and one packet may hold several messages. Each decoded message keeps its field
+  values and, for every field, the packets and offsets its bytes came from.
+- Problems never stop anything. The bytes involved are passed through untouched, counted, and logged
+  at most once per 10 s per kind:
+  - an unknown opcode: skipped by its length
+  - an impossible length: resync at the next packet
+  - a message cut by a capture gap or the end of the record
+  - a message that does not match its definition
+- `GET /api/records/{id}/decode` shows the result, to check an ICD against real traffic. Add
+  `?icd=<id>` to try an ICD before assigning it to the category.
 
 ### Storage layout (one bucket)
 
@@ -588,7 +723,9 @@ Receive-side artifacts are handled:
 pcaps/{fileId}.pcap|pcapng   capture, stored once per SHA-256
 pcaps/{fileId}.json          name, size, format, uploader, scan summary (with timeline)
 records/{recordId}.json      name, description, category, tags, ports, IP filter, range, stats
-categories/{id}.json         name and connection mode
+categories/{id}.json         name, connection mode and ICD id
+icds/{icdId}.json            an uploaded ICD, exactly as uploaded
+timefix/{categoryId}.json    the category's time-fix profile
 playlists/{id}.json          saved playlist: name and items (record, target, pause)
 tags.json                    all tags
 history.json                 the last runs, newest first
@@ -617,6 +754,11 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `PUT` / `DELETE /api/records/{id}`, `GET /api/records/{id}/download` | edit (name, description, times, `categoryId` with the same mode or `422 CATEGORY_MODE_MISMATCH`, `tagIds`), delete, download the capture |
 | `POST` / `PUT` / `DELETE /api/categories[/{id}]`, `GET /api/categories/{id}/usage` | categories; `DELETE ?moveTo={id}` moves the records to a category with the same mode instead of deleting them |
 | `POST` / `PUT` / `DELETE /api/tags[/{id}]`, `POST /api/tags/{id}/merge` | tags; merge replaces the tag with `{intoId}` on every record, then deletes it |
+| `GET /api/icds`, `GET /api/icds/{id}/tree`, `GET /api/icds/{id}/json` | ICDs (Java and uploaded), one ICD's structure, an uploaded ICD's file |
+| `POST /api/icds` (body: the ICD JSON file, `content-type: application/json`), `DELETE /api/icds/{id}` | upload or replace an ICD (`422 ICD_INVALID` lists every problem with its JSON path); delete one no category uses |
+| `PUT /api/categories/{id}/icd` | `{icdId}` (null to clear): the ICD the category's messages follow |
+| `GET` / `PUT /api/categories/{id}/timefix` | the category's time-fix profile with its ICD tree and warnings / save `{messages: [{opcode, base: {path, kind}, fields: [...]}]}` |
+| `GET /api/records/{id}/decode?limit=&opcode=&icd=` | debug: the record decoded with its category's ICD (or `icd`): counts per opcode, decode problems, the first `limit` messages (default 100) with fields and byte locations |
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
 | `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist; optional `playlistName` is recorded in History) |
@@ -675,6 +817,9 @@ no connection are not delivered ("8 not delivered" in Now playing and History; t
 gets the messages from that moment on; a connection that drops is retried the same way. With
 `replay.tcp-keep-trying: false` it fails instead (`CONNECT_FAILED` / `CONNECTION_LOST`). UDP needs no
 listener (datagrams are just sent), and a TCP client replay waits for the service to connect.
+
+`tools/load_test.py` plays 10 replays at once against a running server and reports timing, HTTP
+latency and CPU; see [Resources and behavior under load](#resources-and-behavior-under-load).
 
 ---
 

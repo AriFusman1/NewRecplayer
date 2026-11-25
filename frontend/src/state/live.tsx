@@ -63,6 +63,23 @@ export function LiveProvider({ children, onCatalogChange }: { children: ReactNod
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+/**
+ * Free replay slots on the server (all users together), for disabling Play buttons before the
+ * server would refuse. The server checks again on start, so this only has to be close.
+ */
+export function useRoom() {
+  const { usage } = useLive();
+  const { t } = useI18n();
+  const known = usage.max > 0; // 0 = not received yet: don't block anything
+  const free = Math.max(0, usage.max - usage.active);
+  /** Why {@code count} more replays cannot start now, or null if they can. */
+  const blockedFor = (count: number): string | null => {
+    if (!known || count <= free) return null;
+    return free === 0 ? t('usage.full', { max: usage.max }) : t('select.noRoom', { free, max: usage.max, n: count });
+  };
+  return { free, blockedFor };
+}
+
 export function useLive(): LiveState {
   const state = useContext(Ctx);
   if (!state) throw new Error('useLive outside provider');

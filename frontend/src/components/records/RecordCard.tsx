@@ -12,6 +12,7 @@ import { EditRecordDialog } from './EditRecordDialog';
 import { Icon } from '../common/Icon';
 import { Confirm } from '../common/Modal';
 import { PlayDialog } from '../playback/PlayDialog';
+import { useRoom } from '../../state/live';
 
 interface Props {
   record: PcapRecord;
@@ -28,6 +29,8 @@ export const RecordCard = memo(function RecordCard({ record, onToggleSelect, sel
   const { toast } = useFeedback();
   const { run } = useAction();
   const [dialog, setDialog] = useState<'play' | 'edit' | 'delete' | null>(null);
+  /** Set when every replay slot on the server is taken: Play is disabled and says why. */
+  const full = useRoom().blockedFor(1);
   const category = categoryById.get(record.categoryId);
   const file = fileById.get(record.fileId);
   const stats = record.stats;
@@ -84,7 +87,10 @@ export const RecordCard = memo(function RecordCard({ record, onToggleSelect, sel
       <div className="small muted">{t('card.uploaded', { name: record.createdBy || '—', time: formatMs(record.createdAtMs) })}</div>
       <Warnings items={stats.warnings} />
       {!onToggleSelect && <div className="actions">
-        <button className="btn primary sm" onClick={() => setDialog('play')}><Icon name="play" size={12} />{t('common.play')}</button>
+        {/* the tooltip sits on a wrapper: a disabled button gets no mouse events, so it would never show */}
+        <span title={full ?? undefined}>
+          <button className="btn primary sm" disabled={full !== null} onClick={() => setDialog('play')}><Icon name="play" size={12} />{t('common.play')}</button>
+        </span>
         <button className="btn sm" onClick={() => { add(record.id, category.mode); toast('info', t('playlist.added', { name: record.name })); }}>
           <Icon name="plus" size={14} />{t('card.addToPlaylist')}</button>
         <div className="grow" />

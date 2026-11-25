@@ -1,5 +1,6 @@
 package com.pcapplayer.recordManagement.service;
 
+import com.pcapplayer.icd.loading.IcdRegistry;
 import com.pcapplayer.pcapProcessing.extract.CachingExtractor;
 import com.pcapplayer.persistence.FileCache;
 import com.pcapplayer.playback.model.HistoryEntry;
@@ -12,6 +13,7 @@ import com.pcapplayer.recordManagement.repository.CatalogRepository;
 import com.pcapplayer.uploadHandling.UploadService;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.io.UncheckedIOException;
 import java.util.List;
 
@@ -23,6 +25,9 @@ import java.util.List;
  *   <li>{@link #taxonomy()}: categories and tags</li>
  *   <li>{@link #playlists()}: saved playlists</li>
  *   <li>{@link #scriptSource()}: records as replay scripts, for the engine</li>
+ *   <li>{@link #icds()}: ICDs and which category uses which</li>
+ *   <li>{@link #timeFix()}: time-fix profiles</li>
+ *   <li>{@link #decoding()}: records decoded with an ICD (debug)</li>
  * </ul>
  */
 public class CatalogService {
@@ -40,15 +45,21 @@ public class CatalogService {
     private final TaxonomyService taxonomy;
     private final PlaylistService playlists;
     private final ScriptSource scriptSource;
+    private final RecordDecodeService decoding;
+    private final IcdService icds;
+    private final TimeFixService timeFix;
 
     public CatalogService(CatalogRepository repo, UploadService uploads, FileCache cache, CachingExtractor extractor,
-                          int maxBins, Runnable onChange) {
+                          IcdRegistry builtInIcds, int maxBins, Clock clock, Runnable onChange) {
         CatalogSupport support = new CatalogSupport(repo, onChange);
         this.repo = repo;
         this.records = new RecordService(support, uploads, cache, extractor, maxBins);
         this.taxonomy = new TaxonomyService(support, records);
         this.playlists = new PlaylistService(support);
-        this.scriptSource = new RecordScriptSource(repo, cache, extractor, maxBins);
+        this.icds = new IcdService(support, builtInIcds);
+        this.timeFix = new TimeFixService(support, icds, clock);
+        this.scriptSource = new RecordScriptSource(repo, cache, extractor, maxBins, new TimeFixPlans(icds, timeFix));
+        this.decoding = new RecordDecodeService(support, cache, extractor, icds);
     }
 
     public RecordService records() {
@@ -65,6 +76,18 @@ public class CatalogService {
 
     public ScriptSource scriptSource() {
         return scriptSource;
+    }
+
+    public IcdService icds() {
+        return icds;
+    }
+
+    public TimeFixService timeFix() {
+        return timeFix;
+    }
+
+    public RecordDecodeService decoding() {
+        return decoding;
     }
 
     public Catalog catalog() {

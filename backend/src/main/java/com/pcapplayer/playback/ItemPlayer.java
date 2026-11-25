@@ -16,6 +16,9 @@ import java.util.function.Consumer;
  * A seek moves time zero so the requested position is "now" and continues from the first step at
  * or after it. Steps jumped over are not sent; the connection stays open, so recorded
  * closes/reopens that are jumped over are ignored.
+ * <p>
+ * With a {@link TimeFixer}, each packet's bytes pass through it right before they are sent, so time
+ * fields get the real send time. Without one, the recorded bytes are sent as they are.
  */
 public final class ItemPlayer {
 
@@ -28,18 +31,43 @@ public final class ItemPlayer {
 
     static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
                      Consumer<EItemState> state, Log log) {
-        play(script, transport, control, progress, state, log, false);
+        play(script, transport, control, progress, state, log, null, false);
+    }
+
+    /** @param timeFixer rewrites time fields at send time; null to send the recorded bytes */
+    static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
+                     Consumer<EItemState> state, Log log, TimeFixer timeFixer) {
+        play(script, transport, control, progress, state, log, timeFixer, false);
     }
 
     /** @param alreadyOpen the transport is connected already (a TCP client that connected while its group waited) */
     static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
                      Consumer<EItemState> state, Log log, boolean alreadyOpen) {
+        play(script, transport, control, progress, state, log, null, alreadyOpen);
+    }
+
+    /**
+     * @param timeFixer   rewrites time fields at send time; null to send the recorded bytes
+     * @param alreadyOpen the transport is connected already (a TCP client that connected while its group waited)
+     */
+    static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
+                     Consumer<EItemState> state, Log log, TimeFixer timeFixer, boolean alreadyOpen) {
+        play(script, transport, control, progress, state, log, timeFixer, alreadyOpen, 0);
+    }
+
+    /**
+     * @param startAtNanos time zero as {@link System#nanoTime()}, shared by the records of a group so they
+     *                     start at the same instant; 0 = now
+     */
+    static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
+                     Consumer<EItemState> state, Log log, TimeFixer timeFixer, boolean alreadyOpen, long startAtNanos) {
         if (!alreadyOpen) {
             state.accept(transport.waitsForPeer() ? EItemState.WAITING_FOR_CONNECTION : EItemState.CONNECTING);
             transport.open(control);
         }
         control.takeSeek(); // a jump requested before playback started has nothing to apply to
-        long zeroNanos = System.nanoTime();
+        // the first step (offset 0) waits for time zero like any other: a group's members all leave at its start instant
+        long zeroNanos = startAtNanos > 0 ? startAtNanos : System.nanoTime();
         progress.start(zeroNanos);
         state.accept(EItemState.PLAYING);
         // else logged when it connected; a keep-trying transport logs its own connects
@@ -55,8 +83,12 @@ public final class ItemPlayer {
             } else {
                 ScriptStep step = steps.get(i);
 
-                if (PreciseClock.sleepUntilOrSeek(zeroNanos + step.offsetNanos(), control)) {
-                    zeroNanos = run(step, zeroNanos, transport, control, progress, state, log);
+                // a group's first message leaves at its shared start instant: spin for it even past the spin limit
+                boolean groupStart = i == 0 && startAtNanos > 0;
+                long due = zeroNanos + step.offsetNanos();
+
+                if (groupStart ? PreciseClock.sleepUntilOrSeekAlwaysSpin(due, control) : PreciseClock.sleepUntilOrSeek(due, control)) {
+                    zeroNanos = run(i, step, zeroNanos, transport, control, progress, state, log, timeFixer);
                     i++;
                     control.checkAlive();
                     continue;
@@ -76,6 +108,7 @@ public final class ItemPlayer {
                 next++;
             }
             i = next;
+            if (timeFixer != null) timeFixer.seekTo(next);
             zeroNanos = System.nanoTime() - target;
             progress.seek(zeroNanos, messages, bytes);
             state.accept(EItemState.PLAYING); // republish so viewers see the jump at once
@@ -83,10 +116,12 @@ public final class ItemPlayer {
     }
 
     /** Executes one step that is due. @return time zero, which a reconnect wait can move */
-    private static long run(ScriptStep step, long zeroNanos, Transport transport, Control control, ItemProgress progress,
-                            Consumer<EItemState> state, Log log) {
+    private static long run(int index, ScriptStep step, long zeroNanos, Transport transport, Control control,
+                            ItemProgress progress, Consumer<EItemState> state, Log log, TimeFixer timeFixer) {
         if (step instanceof ScriptStep.Send send) {
-            if (transport.send(send.data(), control)) progress.sent(send.data().length);
+            byte[] data = timeFixer == null ? send.data() : timeFixer.bytesToSend(index, send.data());
+            // a keep-trying TCP transport without a connection does not deliver it
+            if (transport.send(data, control)) progress.sent(send.data().length);
             else progress.missed();
         } else if (step instanceof ScriptStep.Gap gap) {
             log.log("warning", "LOG_GAP", Map.of("bytes", gap.bytes(), "offsetMs", TimeUnit.NANOSECONDS.toMillis(gap.offsetNanos())));

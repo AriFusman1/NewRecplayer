@@ -146,7 +146,33 @@ class MessageExtractorTest {
         assertEquals(1, result.otherProtocolPackets());
     }
 
+    @Test
+    void eachTcpConnectionIsItsOwnFlow() throws IOException {
+        ExtractionResult result = extractTcp(List.of(
+                toServer(0, CLIENT_PORT, 100, 0, Frames.SYN, NO_DATA),
+                toServer(2, CLIENT_PORT, 101, 0, Frames.ACK | Frames.PSH, text("one")),
+                toServer(6, CLIENT_PORT, 104, 0, Frames.FIN | Frames.ACK, NO_DATA),
+                toClient(7, CLIENT_PORT, 900, 105, Frames.FIN | Frames.ACK, NO_DATA),
+                toServer(20, CLIENT_PORT + 1, 500, 0, Frames.SYN, NO_DATA),
+                toServer(22, CLIENT_PORT + 1, 501, 0, Frames.ACK | Frames.PSH, text("two"))));
+
+        assertEquals(List.of(0, 1), steps(result, ScriptStep.Send.class).stream().map(ScriptStep.Send::flowId).toList());
+        assertEquals(2, result.script().flows().size());
+        assertEquals("TCP 10.0.0.1:40001 → 10.0.0.2:5000", result.script().flows().get(1).describe());
+    }
+
     // ------------------------------------------------------------------ UDP
+
+    @Test
+    void eachUdpSourcePortIsItsOwnFlow() throws IOException {
+        ExtractionResult result = extract(EConnectionMode.UDP_SERVER, List.of(
+                udpToServer(0, CLIENT_PORT, text("a")),
+                udpToServer(1, CLIENT_PORT + 1, text("b")),
+                udpToServer(2, CLIENT_PORT, text("c"))));
+
+        assertEquals(List.of(0, 1, 0), steps(result, ScriptStep.Send.class).stream().map(ScriptStep.Send::flowId).toList());
+        assertEquals("UDP 10.0.0.1:40001 → 10.0.0.2:5000", result.script().flows().get(1).describe());
+    }
 
     @Test
     void udpDatagramsAreSentAndDuplicatesDropped() throws IOException {
@@ -188,7 +214,11 @@ class MessageExtractorTest {
     }
 
     private static Frame udpToServer(long ms, byte[] data) {
-        byte[] datagram = Frames.udp(CLIENT_PORT, SERVICE_PORT, data);
+        return udpToServer(ms, CLIENT_PORT, data);
+    }
+
+    private static Frame udpToServer(long ms, int clientPort, byte[] data) {
+        byte[] datagram = Frames.udp(clientPort, SERVICE_PORT, data);
         return new Frame(T0 + ms * MS, Frames.ethernet(Frames.ipv4(CLIENT, SERVER, Frames.PROTO_UDP, datagram)));
     }
 

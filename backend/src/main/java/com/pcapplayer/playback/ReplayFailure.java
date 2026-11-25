@@ -19,6 +19,8 @@ public class ReplayFailure extends ApiException {
     private static final Set<String> NOT_FOUND_CODES = Set.of("SESSION_NOT_FOUND", "RECORD_NOT_FOUND");
     /** Requests that can never be valid, whatever is running. */
     private static final Set<String> BAD_REQUEST_CODES = Set.of("GROUP_TOO_SMALL");
+    /** The server cannot take the request right now, through no fault of the request. */
+    private static final Set<String> UNAVAILABLE_CODES = Set.of("SHUTTING_DOWN", "START_FAILED");
 
     public ReplayFailure(String code, Map<String, Object> params, String message) {
         super(statusFor(code), code, params, message);
@@ -28,6 +30,7 @@ public class ReplayFailure extends ApiException {
         if (CONFLICT_CODES.contains(code)) return HttpResponseStatus.CONFLICT.code();
         if (NOT_FOUND_CODES.contains(code)) return HttpResponseStatus.NOT_FOUND.code();
         if (BAD_REQUEST_CODES.contains(code)) return HttpResponseStatus.BAD_REQUEST.code();
+        if (UNAVAILABLE_CODES.contains(code)) return HttpResponseStatus.SERVICE_UNAVAILABLE.code();
         return HttpResponseStatus.UNPROCESSABLE_ENTITY.code();
     }
 }

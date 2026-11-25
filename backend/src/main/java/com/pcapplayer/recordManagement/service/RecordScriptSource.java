@@ -8,6 +8,7 @@ import com.pcapplayer.pcapProcessing.script.Histogram;
 import com.pcapplayer.persistence.FileCache;
 import com.pcapplayer.playback.ReplayFailure;
 import com.pcapplayer.playback.model.ScriptSource;
+import com.pcapplayer.playback.model.TimeFix;
 import com.pcapplayer.recordManagement.model.Category;
 import com.pcapplayer.recordManagement.model.PcapFile;
 import com.pcapplayer.recordManagement.model.Record;
@@ -17,19 +18,24 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 
-/** Turns stored records into replay scripts for the engine. Errors are {@link ReplayFailure}s. */
+/**
+ * Turns stored records into replay scripts for the engine, with their time-fix plans when the
+ * category has an ICD and a profile. Errors are {@link ReplayFailure}s.
+ */
 public class RecordScriptSource implements ScriptSource {
 
     private final CatalogRepository repo;
     private final FileCache cache;
     private final CachingExtractor extractor;
     private final int maxBins;
+    private final TimeFixPlans timeFixPlans;
 
-    RecordScriptSource(CatalogRepository repo, FileCache cache, CachingExtractor extractor, int maxBins) {
+    RecordScriptSource(CatalogRepository repo, FileCache cache, CachingExtractor extractor, int maxBins, TimeFixPlans timeFixPlans) {
         this.repo = repo;
         this.cache = cache;
         this.extractor = extractor;
         this.maxBins = maxBins;
+        this.timeFixPlans = timeFixPlans;
     }
 
     @Override
@@ -51,9 +57,11 @@ public class RecordScriptSource implements ScriptSource {
         try {
             Path path = cache.get(file.objectKey());
             Integer ip = record.ip() == null ? null : Ipv4Packet.parseIp(record.ip());
-            ExtractionResult extraction = extractor.extract(file.sha256(), path,
-                    ExtractionFilter.ofMicros(info.mode(), record.ports(), ip, record.startUs(), record.endUs()));
-            return new Prepared(info, record.startUs(), extraction.script(), Histogram.of(extraction.script(), maxBins));
+            ExtractionFilter filter = ExtractionFilter.ofMicros(info.mode(), record.ports(), ip, record.startUs(), record.endUs());
+            ExtractionResult extraction = extractor.extract(file.sha256(), path, filter);
+            Category category = repo.category(record.categoryId());
+            TimeFix timeFix = timeFixPlans.planFor(category, file.sha256(), filter, extraction.script());
+            return new Prepared(info, record.startUs(), extraction.script(), Histogram.of(extraction.script(), maxBins), timeFix);
         } catch (IOException e) {
             throw new ReplayFailure("PREPARE_FAILED", Map.of("reason", String.valueOf(e.getMessage())), "Cannot load pcap");
         }
