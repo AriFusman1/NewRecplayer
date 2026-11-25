@@ -1,0 +1,70 @@
+{
+  "format": "annotations",
+  "id": "example-basic",
+  "name": "Example 1: bits and a fixed string",
+  "header": {
+    "class": "Header",
+    "opcodeField": "msgType",
+    "lengthField": "msgLength",
+    "lengthIncludesHeader": true
+  },
+  "messages": [
+    {
+      "opcode": "0x01",
+      "class": "Msg"
+    }
+  ],
+  "classes": {
+    "Header": {
+      "fields": [
+        {
+          "ordinal": 0,
+          "name": "msgType",
+          "type": "int",
+          "unsigned": true,
+          "description": "Which message follows."
+        },
+        {
+          "ordinal": 1,
+          "name": "msgLength",
+          "type": "int",
+          "unsigned": true,
+          "description": "The whole message length in bytes, header included."
+        }
+      ],
+      "binaryData": true,
+      "description": "The header every message starts with."
+    },
+    "Msg": {
+      "binaryData": true,
+      "description": "The example from the annotation document: a C struct {unsigned a:5; int b:3; char name[5];}.",
+      "fields": [
+        {
+          "ordinal": 1,
+          "name": "a",
+          "type": "int",
+          "unsigned": true,
+          "bits": {
+            "value": 5,
+            "bitfield": "BITS8"
+          }
+        },
+        {
+          "ordinal": 2,
+          "name": "b",
+          "type": "int",
+          "bits": {
+            "value": 3,
+            "bitfield": "BITS8"
+          }
+        },
+        {
+          "ordinal": 3,
+          "name": "name",
+          "type": "String",
+          "size": 5
+        }
+      ]
+    }
+  }
+}

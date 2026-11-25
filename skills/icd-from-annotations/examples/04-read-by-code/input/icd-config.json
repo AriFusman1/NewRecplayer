@@ -1,0 +1,16 @@
+{
+  "id": "example-code",
+  "name": "Example 4: fields read by code",
+  "header": {
+    "class": "Header",
+    "opcodeField": "msgType",
+    "lengthField": "msgLength",
+    "lengthIncludesHeader": true
+  },
+  "messages": [
+    {
+      "opcode": "0x04",
+      "class": "Lookup"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import com.pcapplayer.icd.decode.ByteSpan;
 import com.pcapplayer.icd.decode.DecodeStats;
 import com.pcapplayer.icd.decode.DecodedMessage;
 import com.pcapplayer.icd.decode.FieldValue;
+import com.pcapplayer.icd.model.EValidity;
 
 import java.math.BigInteger;
 import java.util.LinkedHashMap;
@@ -43,9 +44,14 @@ public record DecodeReport(String icdId, int scriptSteps, DecodeStats.Summary st
                 message.firstStep(), message.lastStep(), message.length(), message.trailingBytes(), fields, message.locations());
     }
 
-    /** Big UINT64 values as decimal strings (JavaScript numbers would lose precision). */
+    /**
+     * Big UINT64 values as decimal strings (JavaScript numbers would lose precision). A scaled value
+     * shows its real value; an invalid one says why, e.g. "200 (INVALIDITY_VALUE)".
+     */
     private static Object display(FieldValue value) {
         Object plain = value.value() instanceof BigInteger big ? big.toString() : value.value();
-        return value.enumName() != null ? value.enumName() + " (" + plain + ")" : plain;
+        Object shown = value.scaled() != null ? value.scaled() : plain;
+        if (value.enumName() != null) shown = value.enumName() + " (" + plain + ")";
+        return value.validity() == EValidity.VALID ? shown : shown + " (" + value.validity() + ")";
     }
 }

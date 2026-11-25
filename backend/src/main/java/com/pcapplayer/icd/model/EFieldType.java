@@ -6,6 +6,8 @@ public enum EFieldType {
     UINT8(1, false, false),
     INT16(2, true, false),
     UINT16(2, false, false),
+    /** 3 bytes; used for 24-bit bitfield containers ({@code BitfieldLength.BITS24}). */
+    UINT24(3, false, false),
     INT32(4, true, false),
     UINT32(4, false, false),
     INT64(8, true, false),

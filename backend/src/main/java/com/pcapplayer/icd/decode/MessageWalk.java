@@ -5,6 +5,8 @@ import com.pcapplayer.icd.model.EBitOrder;
 import com.pcapplayer.icd.model.EByteOrder;
 import com.pcapplayer.icd.model.EFieldKind;
 import com.pcapplayer.icd.model.EFieldType;
+import com.pcapplayer.icd.model.EValidity;
+import com.pcapplayer.icd.model.ValueRules;
 import com.pcapplayer.icd.model.FieldDef;
 
 import java.nio.charset.Charset;
@@ -56,15 +58,15 @@ final class MessageWalk {
 
     private void readElement(FieldDef field, String path, EByteOrder byteOrder) throws MessageDecodeException {
         switch (field.kind()) {
-            case PRIMITIVE -> readNumber(path, field.type(), byteOrder);
+            case PRIMITIVE -> applyRules(path, readNumber(path, field.type(), byteOrder), field.rules());
 
             case ENUM -> {
                 FieldValue number = readNumber(path, field.enumDef().type(), byteOrder);
                 String name = field.enumDef().values().get(number.asLong());
-                values.put(path, new FieldValue(EFieldKind.ENUM, number.type(), number.value(), name));
+                applyRules(path, new FieldValue(EFieldKind.ENUM, number.type(), number.value(), name), field.rules());
             }
             case STRING -> readString(path, field);
-            case BITFIELD -> readBitfield(path, field, byteOrder);
+            case BITFIELD -> readBitfield(path, structPrefix(path, field), field, byteOrder);
 
             case PADDING -> {
                 require(field.paddingBytes(), path);
@@ -84,22 +86,47 @@ final class MessageWalk {
         return value;
     }
 
-    /** The text ends at the first zero byte; the rest is padding. */
+    /** Records {@code value} with its real value (lsb applied) and validity, if the field has rules. */
+    private void applyRules(String path, FieldValue value, ValueRules rules) {
+        if (rules == null || !value.numeric()) {
+            values.put(path, value);
+            return;
+        }
+        Double scaled = rules.lsb() == null ? null : value.asDouble() * rules.lsb();
+        double real = scaled != null ? scaled : value.asDouble();
+        EValidity validity = EValidity.VALID;
+
+        if (rules.invalidityValue() != null && rules.invalidityValue() == value.asLong()) {
+            validity = EValidity.INVALIDITY_VALUE;
+        } else if ((rules.minValue() != null && real < rules.minValue()) || (rules.maxValue() != null && real > rules.maxValue())) {
+            validity = EValidity.OUT_OF_RANGE;
+        }
+        values.put(path, new FieldValue(value.kind(), value.type(), value.value(), value.enumName(), scaled, validity));
+    }
+
+    /** The prefix of the struct that holds the element at {@code elementPath} ("", "pos." or "targets[2]."). */
+    private static String structPrefix(String elementPath, FieldDef field) {
+        return elementPath.substring(0, elementPath.lastIndexOf(field.name()));
+    }
+
+    /** The text ends at the first zero byte; the rest is padding. A reversed string is stored last character first. */
     private void readString(String path, FieldDef field) throws MessageDecodeException {
         int length = field.string().length();
         require(length, path);
         int end = position;
         while (end < position + length && bytes[end] != 0) end++;
         String text = new String(bytes, position, end - position, Charset.forName(field.string().encoding()));
+        if (field.string().reversed()) text = new StringBuilder(text).reverse().toString();
         values.put(path, new FieldValue(EFieldKind.STRING, null, text, null));
         position += length;
     }
 
     /**
      * Each bit field is cut out of the container: MSB_FIRST fills from the top bit down, LSB_FIRST from
-     * bit 0 up. Paths are {@code <field>.<bit name>}.
+     * bit 0 up. Paths are {@code <field>.<bit name>}, or the bit's own name in the struct for a flat bitfield.
      */
-    private void readBitfield(String path, FieldDef field, EByteOrder byteOrder) throws MessageDecodeException {
+    private void readBitfield(String path, String structPrefix, FieldDef field, EByteOrder byteOrder)
+            throws MessageDecodeException {
         EFieldType container = field.bitfield().type();
         require(container.size(), path);
         long raw = IcdBytes.readUnsigned(bytes, position, container.size(), byteOrder);
@@ -109,7 +136,7 @@ final class MessageWalk {
         for (BitDef bit : field.bitfield().bits()) {
             int shift = field.bitfield().bitOrder() == EBitOrder.MSB_FIRST ? containerBits - used - bit.bits() : used;
             long mask = bit.bits() == 64 ? -1L : (1L << bit.bits()) - 1;
-            String bitPath = path + "." + bit.name();
+            String bitPath = field.bitfield().bitPath(path, structPrefix, bit);
             values.put(bitPath, new FieldValue(EFieldKind.BITFIELD, container, (raw >>> shift) & mask, null));
             slots.put(bitPath, new FieldSlot(position, container.size(), container, byteOrder, shift, bit.bits()));
             used += bit.bits();
@@ -129,12 +156,24 @@ final class MessageWalk {
         if (count == null) throw new MessageDecodeException("array " + prefix + field.name() + ": count field " + path + " not decoded yet");
 
         long elements = count.asLong();
+        if (field.array().lengthInBytes()) elements = elementsInBytes(field, prefix, elements);
 
         if (elements < 0 || elements > bytes.length - position) {
             throw new MessageDecodeException("array " + prefix + field.name() + ": count " + elements + " is impossible ("
                     + (bytes.length - position) + " bytes left)");
         }
         return elements;
+    }
+
+    /** A length given in bytes, as a number of elements: it must be a whole number of fixed-size elements. */
+    private static long elementsInBytes(FieldDef field, String prefix, long lengthBytes) throws MessageDecodeException {
+        int elementSize = field.elementSize();
+
+        if (elementSize <= 0 || lengthBytes % elementSize != 0) {
+            throw new MessageDecodeException("array " + prefix + field.name() + ": " + lengthBytes
+                    + " bytes is not a whole number of " + elementSize + "-byte elements");
+        }
+        return lengthBytes / elementSize;
     }
 
     private void require(int size, String path) throws MessageDecodeException {

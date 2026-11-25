@@ -2,6 +2,8 @@ node_modules/
 frontend/dist/
 frontend/.test-build/
 backend/target/
+tools/icd-converter/target/
+__pycache__/
 backend/src/main/resources/webroot/
 *.log
 .DS_Store

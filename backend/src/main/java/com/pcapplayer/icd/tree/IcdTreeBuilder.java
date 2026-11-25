@@ -59,16 +59,16 @@ public final class IcdTreeBuilder {
                     size, array, false, inArray, nodes(field.struct().fields(), path + ".", inArray));
             case BITFIELD -> new IcdTreeNode(field.name(), path, ETreeNodeKind.BITFIELD,
                     "bitfield " + field.bitfield().type() + " " + field.bitfield().bitOrder(), null, 0, size, array, false,
-                    inArray, bits(field, path, inArray));
+                    inArray, bits(field, path, prefix, inArray));
         };
     }
 
-    private static List<IcdTreeNode> bits(FieldDef field, String path, boolean inArray) {
+    private static List<IcdTreeNode> bits(FieldDef field, String path, String prefix, boolean inArray) {
         List<IcdTreeNode> bits = new ArrayList<>();
         EFieldType container = field.bitfield().type();
 
         for (BitDef bit : field.bitfield().bits()) {
-            bits.add(new IcdTreeNode(bit.name(), path + "." + bit.name(), ETreeNodeKind.BIT, bit.bits() + " bits", container,
+            bits.add(new IcdTreeNode(bit.name(), field.bitfield().bitPath(path, prefix, bit), ETreeNodeKind.BIT, bit.bits() + " bits", container,
                     bit.bits(), null, null, true, inArray, List.of()));
         }
         return bits;
