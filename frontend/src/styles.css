@@ -673,3 +673,20 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tf-tree td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
 .tf-tree tr.tf-chosen td { background: var(--accent-soft); }
 .tf-tree input[type="radio"], .tf-tree input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+
+/* auto tagging */
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.badge.err { background: var(--danger-soft); color: var(--danger-text); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.rule-condition { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.rule-predicate { padding-inline-start: 8px; }
+.rule-row { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.rule-row:last-of-type { border-bottom: none; }
+.rule-summary { color: var(--text-2); overflow-wrap: anywhere; }
+.archive-browser { display: flex; flex-direction: column; gap: 6px; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--surface-3); }
+.table.compact td, .table.compact th { padding: 4px 8px; }
+.result-details td { background: var(--surface-2); }
+.rc-tagging { display: flex; flex-direction: column; gap: 6px; }
+.rc-stats { display: flex; flex-direction: column; gap: 6px; }

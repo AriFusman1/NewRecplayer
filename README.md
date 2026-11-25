@@ -315,6 +315,13 @@ through to the backend on port 8080.
    - Every replay of the category's records now fixes those fields. The time kinds and the exact
      rules are in [docs/time-fix.md](docs/time-fix.md). To check an ICD against a real record, open
      `/api/records/{id}/decode`.
+7. **Auto tagging** (optional, needs a category with an ICD): give a batch of pcaps (local files, a
+   local folder, or the archive S3, optionally filtered by last-modified time) and rules such as
+   "at least 10 Track messages where `targets[*].kind = AIR`". Every file is decoded and every message
+   type counted; files that match a rule are saved as records with their message statistics, and the
+   rule names become tags. **Evaluate only** tries rules without saving anything. The Player page can
+   then filter by matched rule and by "message type ≥ N". Gzipped pcaps are accepted here and on the
+   Upload page. Details: [docs/auto-tagging.md](docs/auto-tagging.md).
 
 ---
 
@@ -379,6 +386,14 @@ All keys:
 | extraction.cache-max-bytes | EXTRACTION_CACHE_MAX_BYTES | 256 MiB | parsed captures kept in memory (0 turns it off) |
 | history.size | HISTORY_SIZE | 20 | runs kept in history |
 | histogram.max-bins | HISTOGRAM_MAX_BINS | 120 | bars in a record's graph |
+| archive-s3.endpoint / region / bucket | ARCHIVE_S3_ENDPOINT / _REGION / _BUCKET | *(empty bucket = off)* | the organization's archive of recordings, a **separate, read-only** S3 used as an auto-tagging source |
+| archive-s3.access-key / secret-key | ARCHIVE_S3_ACCESS_KEY / ARCHIVE_S3_SECRET_KEY | *(empty = AWS default chain)* | never sent to the browser |
+| archive-s3.path-style | ARCHIVE_S3_PATH_STYLE | false | `true` for MinIO and most S3-compatible servers |
+| archive-s3.root-prefix | ARCHIVE_S3_ROOT_PREFIX | *(empty)* | the archive browser cannot go above it |
+| auto-tag.max-files-per-run | AUTO_TAG_MAX_FILES_PER_RUN | 500 | a bigger selection is refused before the run starts |
+| auto-tag.workers | AUTO_TAG_WORKERS | 4 | files processed in parallel within one run |
+| auto-tag.max-concurrent-jobs | AUTO_TAG_MAX_CONCURRENT_JOBS | 1 | runs at once; others wait in a queue |
+| auto-tag.float-tolerance | AUTO_TAG_FLOAT_TOLERANCE | 0.000001 | float equality tolerance in rules |
 
 **Memory**: JVM options go in `JAVA_OPTS` (the image uses `-XX:MaxRAMPercentage=75`). A running
 replay holds its record's payload in memory, and up to `extraction.cache-max-bytes` of parsed
@@ -513,7 +528,7 @@ backend/                          Maven project; all versions pinned in pom.xml 
       routes/              one *Routes class per area: parse the request, call a service
       live/                LiveHub: pushes running replays and change hints over the WebSocket
     pcapProcessing/        everything that reads packets, in pipeline order
-      capture/             reading pcap/pcapng files through libpcap (pcap4j)
+      capture/             reading pcap/pcapng files through libpcap (pcap4j); PcapInputOpener (gzip and pcap detection)
       decode/              link-layer decoding, IPv4 fragment reassembly, TCP/UDP packets
       flow/                rebuilding flows: TCP stream reassembly, UDP de-duplication
       summary/             the upload summary: CaptureScanner, CaptureSummary, Timeline (graph data)
@@ -534,14 +549,24 @@ backend/                          Maven project; all versions pinned in pom.xml 
                            TimeFixProfileValidator
       tree/                IcdTree: an ICD's structure for the UI (paths, types, sizes, which fields hold numbers)
       versions/            one sub-package per ICD version written in Java
+    autotag/               auto tagging; see docs/auto-tagging.md
+      rules/               TagRule, RuleCondition, FieldPredicate, EOperator, EValueType, RuleValidator,
+                           PredicateEvaluator (operator semantics), PathPattern ([*] = any element),
+                           CompiledRules, RuleMatchAnalyzer (a MessageAnalyzer: one counter per condition)
+      archive/             ArchiveStore (read-only interface), S3ArchiveStore, ArchiveService, ArchivePaths,
+                           TimeSpan, ArchiveSelection (LastModified filter)
+      job/                 TagJobService (create, uploads, queue, cancel, restart), TagJobRunner (worker pool),
+                           FileTagger (one file: open → decode → evaluate → save), ServicePorts, TagJob, FileResult
     recordManagement/
       service/             business rules: RecordService (preview, create, edit, delete), TaxonomyService
                            (categories, tags), PlaylistService, RecordScriptSource (records → replay
                            scripts), IcdService (ICDs, category → ICD), TimeFixService (profiles),
-                           RecordDecodeService (debug decode), CatalogService (entry point),
+                           RecordDecodeService (debug decode), TagRuleService (auto-tagging rules),
+                           CatalogService (entry point),
                            CatalogSupport (shared lock and helpers)
-      model/               the stored data: Record, Category, Tag, PcapFile, SavedPlaylist, RecordStats
-      repository/          CatalogRepository: all metadata in memory, written through to storage
+      model/               the stored data: Record, Category, Tag, PcapFile, SavedPlaylist, RecordStats, TaggingStats
+      repository/          CatalogRepository: all metadata in memory, written through to storage;
+                           TaggingIndex (records by matched rule and message count, for the list filters)
     uploadHandling/        UploadService: uploads in progress (hash and scan)
     playback/              the engine: ReplayEngine (sessions, target locks), ReplaySession (one thread
                            per session), ItemPlayer (timing and seeking), PreciseClock, Control
@@ -549,7 +574,7 @@ backend/                          Maven project; all versions pinned in pom.xml 
                            ItemRequest, Target, ScriptSource, ReplayListener
       transport/           TCP/UDP sockets for each connection mode
     persistence/           BlobStore (the storage interface), FileCache (local copies of pcap files)
-      s3/                  S3BlobStore: AWS S3 and S3-compatible servers
+      s3/                  S3BlobStore: AWS S3 and S3-compatible servers; S3Clients (shared with the archive)
       filesystem/          FileSystemBlobStore: a local folder (local use)
     errorHandling/         ApiException: the app's error type ({code, message, params} with an HTTP status)
     common/                Json, Strings, Secrets (masking)
@@ -558,7 +583,7 @@ backend/                          Maven project; all versions pinned in pom.xml 
 frontend/src/
   api/                     client.ts (one function per endpoint), types.ts (mirrors the backend JSON), live.ts (WebSocket)
   state/                   React contexts: catalog, live sessions, playlist draft, upload in progress, feedback (popups, toasts, useAction)
-  pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/, playing/, timefix/
+  pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/, playing/, timefix/, autotag/
   components/
     common/                small reusable pieces: Modal, Icon, Badges, Stat, TimeField, Sortable (drag-to-reorder)
     layout/                app frame: Header, BottomNav, FeedbackView (toasts, popups), NicknameDialog
@@ -566,14 +591,17 @@ frontend/src/
     records/               RecordCard, EditRecordDialog, RecordPicker, BulkTagDialog, CategorySelect and TagInput (pick or create in place)
     playback/              NowPlaying, LiveView, PlayDialog, TargetFields
     playlist/              PlaylistDrawer
-    icd/                   IcdsCard (upload, list, download, delete ICDs)
+    icd/                   IcdsCard (upload, list, download, delete ICDs), IcdTreeView (a message's field tree, shared)
     timefix/               MessageTimeFixCard (one message's field tree with base / fix / kind)
+    autotag/               RuleEditorDialog, RulesPicker, SourcePicker (the four sources), ArchiveBrowser, MessageCounts
   util/                    plain functions: time (date-fns), targets, record filters, browser storage,
-                           timefix (editing a time-fix profile draft)
+                           timefix (editing a time-fix profile draft), tagRules (rule drafts and summaries),
+                           localFiles (local folder filtering)
   i18n/                    i18next setup plus en.ts and he.ts (Hebrew must have every English key, or it does not compile)
 
 docs/                             icd-json-format.md (ICD format), time-fix.md (time kinds and formulas),
-                                  time-fix-plan.md (design of time fixing)
+                                  time-fix-plan.md (design of time fixing), auto-tagging.md (rules, sources,
+                                  gzip, settings), auto-tagging-plan.md (design of auto tagging)
 config/application.example.yml    template for your configuration (S3 address and secrets)
 tools/gen_samples.py              generates test captures with known expected output
 tools/gen_demo.py                 writes three plain demo captures (TCP server, TCP client, UDP) to try by hand
@@ -717,6 +745,24 @@ then be cut into messages and decoded:
 - `GET /api/records/{id}/decode` shows the result, to check an ICD against real traffic. Add
   `?icd=<id>` to try an ICD before assigning it to the category.
 
+### Auto tagging
+
+Each file of a run goes through `FileTagger` on one of `auto-tag.workers` threads. The steps:
+
+1. `PcapInputOpener` removes a gzip layer (detected by `1F 8B`) and checks the pcap/pcapng magic
+   number, streaming into a temp file while hashing it.
+2. `ServicePorts` finds the server ports (TCP: from the SYNs; otherwise the lower port of each pair),
+   and the whole capture is extracted with them.
+3. `ScriptDecoder` decodes it **once**, feeding `MessageCountAnalyzer` (full statistics),
+   `RuleMatchAnalyzer` (one counter per rule condition) and a port collector.
+4. At the end the rules are evaluated. A matching file goes through `RecordService.saveTagged`: a new
+   record through the normal create path, or, if this category already has a record of the same
+   SHA-256, that record gets the new statistics. Saves take turns, so two copies of the same file in
+   one run cannot both create a record.
+
+Rule semantics (operators, float tolerance, `[*]` = any element, each predicate on its own) are in
+[docs/auto-tagging.md](docs/auto-tagging.md).
+
 ### Storage layout (one bucket)
 
 ```
@@ -726,6 +772,8 @@ records/{recordId}.json      name, description, category, tags, ports, IP filter
 categories/{id}.json         name, connection mode and ICD id
 icds/{icdId}.json            an uploaded ICD, exactly as uploaded
 timefix/{categoryId}.json    the category's time-fix profile
+tagrules/{categoryId}.json   the category's auto-tagging rules (and the ICD they were saved for)
+tagjobs/{jobId}.json         an auto-tagging run: source, rule snapshot, status, progress, per-file results
 playlists/{id}.json          saved playlist: name and items (record, target, pause)
 tags.json                    all tags
 history.json                 the last runs, newest first
@@ -745,7 +793,7 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | Endpoint | |
 |---|---|
 | `GET /api/catalog` | categories, tags, records, files, saved playlists |
-| `POST /api/uploads?fileName=&uploadedBy=` | raw file body (streamed to disk) → upload id + summary |
+| `POST /api/uploads?fileName=&uploadedBy=` | raw file body (streamed to disk; gzipped pcaps are decompressed) → upload id + summary |
 | `DELETE /api/uploads/{id}` | discard an unsaved upload |
 | `GET /api/files/{id}/summary` | a stored file's summary |
 | `POST /api/preview` | what a draft record would contain (stats, warnings, errors) |
@@ -759,6 +807,12 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `PUT /api/categories/{id}/icd` | `{icdId}` (null to clear): the ICD the category's messages follow |
 | `GET` / `PUT /api/categories/{id}/timefix` | the category's time-fix profile with its ICD tree and warnings / save `{messages: [{opcode, base: {path, kind}, fields: [...]}]}` |
 | `GET /api/records/{id}/decode?limit=&opcode=&icd=` | debug: the record decoded with its category's ICD (or `icd`): counts per opcode, decode problems, the first `limit` messages (default 100) with fields and byte locations |
+| `GET /api/records/search?categoryId=&rule=&opcode=&minCount=` | ids of records with that matched rule and/or at least `minCount` messages of `opcode` (auto-tagging statistics) |
+| `GET` / `POST /api/categories/{id}/tag-rules`, `PUT` / `DELETE /api/categories/{id}/tag-rules/{ruleId}` | auto-tagging rules: list (with the ICD tree and warnings), create, edit, delete; `422` lists every problem |
+| `GET /api/auto-tag/capabilities` | `{archiveConfigured, maxFilesPerRun}` |
+| `GET /api/archive/browse?prefix=`, `POST /api/archive/preview` | browse the archive S3 / count the files (and bytes) a selection holds |
+| `GET` / `POST /api/tag-jobs`, `GET /api/tag-jobs/{id}?status=` | auto-tagging runs: list, create (`422 TAGJOB_TOO_MANY_FILES` above the limit), one run with its per-file results |
+| `POST /api/tag-jobs/{id}/files/{index}` (raw body), `POST /api/tag-jobs/{id}/start`, `POST /api/tag-jobs/{id}/cancel` | upload a local file of an `UPLOADING` run, queue it once uploaded, cancel |
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
 | `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist; optional `playlistName` is recorded in History) |

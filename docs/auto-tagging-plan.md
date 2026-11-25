@@ -1,10 +1,30 @@
 # Plan: auto-tagging pcaps by their ICD content
 
-Status: **plan, waiting for review.** Nothing is implemented yet. Open questions are in section 10.
+Status: **implemented** (stages 1-6). Decisions from the review are in section 0. The user documentation is
+[auto-tagging.md](auto-tagging.md).
 
-This feature builds on the ICD / time-fix feature ([time-fix-plan.md](time-fix-plan.md)). That code lives on the
-branch `claude/hopeful-planck-7e5zkb`, which is **not merged into `main`** yet. This branch
-(`feature/auto-tagging`) starts from it (see Q1).
+## 0. Decisions after review, and changes from the plan
+
+| # | Decision |
+|---|---|
+| Q1 | The time-fix branch was merged into `main`; `feature/auto-tagging` is built on `main`. |
+| Q2 | Ports are found automatically (SYN destination; otherwise the lower port of a pair) and the record keeps the ports where ICD messages were decoded. **Addition:** the record starts at the first message that counted for a condition of a matched rule, not at the start of the capture. |
+| Q3 | A duplicate in another category creates a new record in this category (the file is stored once). |
+| Q4 | Several records of this category on the same file: all are updated. |
+| Q5 | `MATCHED` is the status of a matching file in an evaluate-only run. |
+| Q6 | Matched rule names are also added to the record as tags (created if missing). |
+| Q7 | `auto-tag.max-concurrent-jobs` defaults to 1. |
+
+Changes from the plan while implementing:
+- `PcapInputOpener` lives in `pcapProcessing/capture` (not `autotag/input`): the regular upload path uses it too,
+  and it is part of reading captures.
+- `RuleMatchAnalyzer` is in `autotag/rules` next to the compiled rules it reads (no separate `analysis` package).
+- The rule and job services are `recordManagement/service/TagRuleService` (catalog data, like `TimeFixService`) and
+  `autotag/job/TagJobService` (jobs, queue, temp files).
+- The record-filter index is `recordManagement/repository/TaggingIndex`, maintained by `CatalogRepository`.
+- `PcapFile.sha256` already holds the hash of every stored file, so no lazy hash back-fill was needed.
+
+This feature builds on the ICD / time-fix feature ([time-fix-plan.md](time-fix-plan.md)).
 
 ---
 

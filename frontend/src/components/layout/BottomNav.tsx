@@ -9,6 +9,7 @@ const ITEMS: { to: string; icon: string; label: MessageKey }[] = [
   { to: PLAYING_PATH, icon: 'layers', label: 'nav.playing' },
   { to: '/upload', icon: 'upload', label: 'nav.upload' },
   { to: '/history', icon: 'history', label: 'nav.history' },
+  { to: '/autotag', icon: 'filter', label: 'nav.autotag' },
   { to: '/catalog', icon: 'tag', label: 'nav.catalog' },
 ];
 

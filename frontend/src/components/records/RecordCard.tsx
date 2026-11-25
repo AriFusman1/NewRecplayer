@@ -9,6 +9,7 @@ import { formatBytes, formatDuration, formatMs, formatNumber, formatUs } from '.
 import { ModeBadge, Warnings } from '../common/Badges';
 import { MiniBars } from '../graphs/BarGraph';
 import { EditRecordDialog } from './EditRecordDialog';
+import { MessageCounts } from '../autotag/MessageCounts';
 import { Icon } from '../common/Icon';
 import { Confirm } from '../common/Modal';
 import { PlayDialog } from '../playback/PlayDialog';
@@ -29,6 +30,7 @@ export const RecordCard = memo(function RecordCard({ record, onToggleSelect, sel
   const { toast } = useFeedback();
   const { run } = useAction();
   const [dialog, setDialog] = useState<'play' | 'edit' | 'delete' | null>(null);
+  const [showStats, setShowStats] = useState(false);
   /** Set when every replay slot on the server is taken: Play is disabled and says why. */
   const full = useRoom().blockedFor(1);
   const category = categoryById.get(record.categoryId);
@@ -82,6 +84,25 @@ export const RecordCard = memo(function RecordCard({ record, onToggleSelect, sel
         <div className="rc-tags" aria-label={t('upload.tags')}>
           <Icon name="tag" size={13} />
           {tags.map((tag) => <span key={tag.id} className="tag-pill"><bdi>{tag.name}</bdi></span>)}
+        </div>
+      )}
+      {record.tagging && (
+        <div className="rc-tagging">
+          <div className="rc-tags" aria-label={t('card.matchedRules')}>
+            <Icon name="check" size={13} />
+            {record.tagging.matchedRules.map((rule) => <span key={rule} className="chip tag"><bdi>{rule}</bdi></span>)}
+            <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); setShowStats(!showStats); }} aria-expanded={showStats}>
+              {showStats ? t('card.hideStats') : t('card.showStats')}</button>
+          </div>
+          {showStats && (
+            <div className="rc-stats" onClick={(e) => e.stopPropagation()}>
+              <div className="small muted">
+                {t('stats.summary', { n: record.tagging.totalMessages, icd: record.tagging.icdId, time: formatMs(record.tagging.taggedAtMs) })}
+                {' · '}{t('stats.problems', { parse: record.tagging.parseErrors, unknown: record.tagging.unknownOpcodes })}
+              </div>
+              <MessageCounts counts={record.tagging.counts} />
+            </div>
+          )}
         </div>
       )}
       <div className="small muted">{t('card.uploaded', { name: record.createdBy || '—', time: formatMs(record.createdAtMs) })}</div>

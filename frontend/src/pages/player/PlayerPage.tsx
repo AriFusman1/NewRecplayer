@@ -1,5 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
-import { MODES, type Mode } from '../../api/types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDebounce } from 'use-debounce';
+import { api } from '../../api/client';
+import { MODES, type IcdTree, type Mode } from '../../api/types';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { usePlaylist } from '../../state/playlist';
@@ -14,7 +16,8 @@ import { RecordCard } from '../../components/records/RecordCard';
 import { toggleIn } from '../../util/list';
 import { matchesQuery } from '../../util/records';
 import { parseBoundUs, readDateTime } from '../../util/time';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useAction } from '../../state/feedback';
 
 /** Main page: search + filters + record cards, the playlist drawer, and "Play together" (up to 10 records). */
 export function PlayerPage() {
@@ -27,6 +30,17 @@ export function PlayerPage() {
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  // auto-tagging filters: answered by the server from its index of the records' message statistics
+  const [rule, setRule] = useState('');
+  const [opcode, setOpcode] = useState('');
+  const [minCount, setMinCount] = useState('1');
+  const [debouncedMin] = useDebounce(minCount, 300);
+  const [tree, setTree] = useState<IcdTree | null>(null);
+  const [statIds, setStatIds] = useState<Set<string> | null>(null);
+  const { run } = useAction();
+  // "?record=<id>" (a link from a tagging job) shows that one record
+  const [searchParams, setSearchParams] = useSearchParams();
+  const onlyRecord = searchParams.get('record');
   const [drawer, setDrawer] = useState(false);
   /** Selection mode: the chosen records can get tags (any number) or be played together (2 up to the free slots). */
   const [selecting, setSelecting] = useState(false);
@@ -50,9 +64,33 @@ export function PlayerPage() {
   const reversed = fromUs !== null && toUs !== null && fromUs > toUs;
 
   const visibleTags = catalog.tags;
+  const ruleNames = useMemo(() => [...new Set(catalog.records.flatMap((record) => record.tagging?.matchedRules ?? []))].sort(),
+    [catalog.records]);
+  const icdId = categoryId ? categoryById.get(categoryId)?.icdId ?? null : null;
+
+  // the message-type filter lists the types of the chosen category's ICD
+  useEffect(() => {
+    setOpcode('');
+    setTree(null);
+    if (icdId) void run(async () => setTree(await api.icdTree(icdId)));
+  }, [icdId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!rule && !opcode) {
+      setStatIds(null);
+      return;
+    }
+    void run(async () => {
+      const ids = await api.searchRecords({ categoryId: categoryId || undefined, rule: rule || undefined,
+        opcode: opcode ? Number(opcode) : undefined, minCount: Math.max(1, Number(debouncedMin) || 1) });
+      setStatIds(new Set(ids));
+    });
+  }, [rule, opcode, debouncedMin, categoryId, catalog.records]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const records = useMemo(() => {
     return catalog.records
+      .filter((record) => !onlyRecord || record.id === onlyRecord)
+      .filter((record) => !statIds || statIds.has(record.id))
       .filter((record) => matchesQuery(record, query))
       .filter((record) => !categoryId || record.categoryId === categoryId)
       .filter((record) => !mode || categoryById.get(record.categoryId)?.mode === mode)
@@ -60,10 +98,13 @@ export function PlayerPage() {
       .filter((record) => fromUs === null || Number.isNaN(fromUs) || record.endUs >= fromUs)
       .filter((record) => toUs === null || Number.isNaN(toUs) || record.startUs <= toUs)
       .sort((left, right) => right.createdAtMs - left.createdAtMs);
-  }, [catalog.records, query, categoryId, mode, tagIds, fromUs, toUs, categoryById]);
+  }, [catalog.records, query, categoryId, mode, tagIds, fromUs, toUs, categoryById, statIds, onlyRecord]);
 
-  const filtered = query || categoryId || mode || tagIds.length || from || to;
-  const clear = () => { setQuery(''); setCategoryId(''); setMode(''); setTagIds([]); setFrom(''); setTo(''); };
+  const filtered = query || categoryId || mode || tagIds.length || from || to || rule || opcode || onlyRecord;
+  const clear = () => {
+    setQuery(''); setCategoryId(''); setMode(''); setTagIds([]); setFrom(''); setTo(''); setRule(''); setOpcode(''); setMinCount('1');
+    if (onlyRecord) setSearchParams({});
+  };
   const stopSelecting = () => { setSelecting(false); setSelectedIds([]); };
   const allVisibleSelected = records.length > 0 && records.every((record) => selected.includes(record.id));
   const toggleAllVisible = () => setSelectedIds(allVisibleSelected
@@ -126,9 +167,36 @@ export function PlayerPage() {
             <DateTimeField value={to} invalid={Number.isNaN(toUs) || reversed} placeholder={t('player.to')} onChange={setTo}
               dayTime="end" minDay={readDateTime(from)} />
           </div>
+          {ruleNames.length > 0 && (
+            <select className="select" value={rule} onChange={(e) => setRule(e.target.value)} aria-label={t('player.matchedRule')}>
+              <option value="">{t('player.anyRule')}</option>
+              {ruleNames.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+          )}
+          {tree && (
+            <div className="row" style={{ gap: 6 }} title={t('player.countHint')}>
+              <select className="select" value={opcode} onChange={(e) => setOpcode(e.target.value)} aria-label={t('player.messageType')}>
+                <option value="">{t('player.anyMessage')}</option>
+                {tree.messages.map((message) => <option key={message.opcode} value={message.opcode}>{message.name}</option>)}
+              </select>
+              {opcode && (
+                <>
+                  <span className="muted">≥</span>
+                  <input className="input" type="number" min={1} style={{ width: 90 }} value={minCount} aria-label={t('rule.minCount')}
+                    onChange={(e) => setMinCount(e.target.value)} />
+                </>
+              )}
+            </div>
+          )}
           <button className="btn ghost" disabled={!filtered} onClick={clear}>{t('player.clear')}</button>
         </div>
         {reversed && <p className="filter-error">{t('player.rangeReversed')}</p>}
+        {onlyRecord && (
+          <div className="row small" style={{ gap: 8, marginTop: 8 }}>
+            <span className="badge neutral">{t('player.oneRecord')}</span>
+            <button className="btn ghost sm" onClick={() => setSearchParams({})}><Icon name="x" size={12} />{t('player.showAll')}</button>
+          </div>
+        )}
         {visibleTags.length > 0 && (
           <div className="tag-filter">
             <span className="label" style={{ alignSelf: 'center' }}>{t('player.tags')}</span>

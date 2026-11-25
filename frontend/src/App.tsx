@@ -6,6 +6,8 @@ import { Header } from './components/layout/Header';
 import { NicknameDialog } from './components/layout/NicknameDialog';
 import { NowPlayingStrip, PLAYING_PATH } from './components/playback/NowPlaying';
 import { I18nProvider } from './i18n';
+import { AutoTagPage } from './pages/autotag/AutoTagPage';
+import { TagJobPage } from './pages/autotag/TagJobPage';
 import { CatalogPage } from './pages/catalog/CatalogPage';
 import { HistoryPage } from './pages/history/HistoryPage';
 import { PlayerPage } from './pages/player/PlayerPage';
@@ -57,6 +59,8 @@ function Shell() {
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/catalog" element={<CatalogPage />} />
           <Route path="/catalog/categories/:categoryId/timefix" element={<TimeFixPage />} />
+          <Route path="/autotag" element={<AutoTagPage />} />
+          <Route path="/autotag/jobs/:jobId" element={<TagJobPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

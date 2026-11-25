@@ -50,6 +50,26 @@ export interface PcapRecord {
   createdBy: string;
   createdAtMs: number;
   updatedAtMs: number;
+  /** Message statistics and matched rules from auto-tagging; null for records made by hand. */
+  tagging: TaggingStats | null;
+}
+
+export interface MessageTypeCount {
+  opcode: number;
+  name: string;
+  count: number;
+}
+
+/** Statistics of the whole file, decoded with the category's ICD by an auto-tagging run. */
+export interface TaggingStats {
+  icdId: string;
+  totalMessages: number;
+  counts: MessageTypeCount[];
+  parseErrors: number;
+  unknownOpcodes: number;
+  matchedRules: string[];
+  jobId: string;
+  taggedAtMs: number;
 }
 
 export interface FileView {
@@ -264,6 +284,8 @@ export interface IcdTreeNode {
   numeric: boolean;
   inArray: boolean;
   children: IcdTreeNode[];
+  /** For an enum: its values and names. */
+  enumValues: { value: number; name: string }[];
 }
 
 export interface IcdTreeMessage {
@@ -331,4 +353,160 @@ export interface DecodeReport {
     fields: Record<string, unknown>;
     locations: Record<string, { step: number; offset: number; length: number }[]>;
   }[];
+}
+
+// ------------------------------------------------------------------ auto-tagging
+
+export type Operator = 'EQ' | 'NE' | 'GT' | 'GE' | 'LT' | 'LE' | 'BETWEEN' | 'IN' | 'NOT_IN' | 'CONTAINS' | 'STARTS_WITH';
+export type ValueType = 'INTEGER' | 'FLOAT' | 'ENUM' | 'BOOL' | 'STRING';
+
+/** One value of a predicate: number (integers, floats), name + number (enum), bool, or text. */
+export interface RuleValue {
+  /** Sent as a string so 64-bit integers keep every digit. */
+  number?: string | number | null;
+  name?: string | null;
+  bool?: boolean | null;
+  text?: string | null;
+}
+
+export interface FieldPredicate {
+  path: string;
+  op: Operator;
+  values: RuleValue[];
+}
+
+export interface RuleCondition {
+  kind: 'COUNT' | 'FIELDS';
+  opcode: number;
+  minCount: number;
+  predicates: FieldPredicate[];
+}
+
+export interface TagRule {
+  id: string | null;
+  name: string;
+  conditions: RuleCondition[];
+}
+
+export interface TagRulesView {
+  categoryId: string;
+  icdId: string | null;
+  rules: TagRule[];
+  tree: IcdTree | null;
+  warnings: Problem[];
+}
+
+export type SourceKind = 'LOCAL_FILES' | 'LOCAL_FOLDER' | 'ARCHIVE_FILES' | 'ARCHIVE_FOLDER';
+export type JobStatus = 'PENDING' | 'UPLOADING' | 'RUNNING' | 'DONE' | 'CANCELLED' | 'FAILED';
+export type FileStatus = 'MATCHED_SAVED' | 'MATCHED_EXISTING_UPDATED' | 'MATCHED' | 'NOT_MATCHED' | 'NOT_A_PCAP' | 'FAILED';
+export const FILE_STATUSES: FileStatus[] = ['MATCHED_SAVED', 'MATCHED_EXISTING_UPDATED', 'MATCHED', 'NOT_MATCHED', 'NOT_A_PCAP', 'FAILED'];
+
+export interface TagJobSource {
+  kind: SourceKind;
+  folder: string | null;
+  recursive: boolean;
+  fromUs: number | null;
+  toUs: number | null;
+}
+
+export interface JobInput {
+  name: string;
+  path: string;
+  size: number;
+}
+
+export interface FileResult {
+  index: number;
+  name: string;
+  path: string;
+  size: number;
+  gzipped: boolean;
+  status: FileStatus;
+  totalMessages: number;
+  counts: MessageTypeCount[];
+  parseErrors: number;
+  unknownOpcodes: number;
+  matchedRules: string[];
+  recordIds: string[];
+  error: string | null;
+}
+
+export interface TagJob {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  icdId: string;
+  source: TagJobSource;
+  rules: TagRule[];
+  evaluateOnly: boolean;
+  createdBy: string;
+  status: JobStatus;
+  failureReason: string | null;
+  filesDone: number;
+  bytesTotal: number;
+  bytesDone: number;
+  createdAtMs: number;
+  startedAtMs: number;
+  endedAtMs: number;
+  inputs: JobInput[];
+  results: FileResult[];
+}
+
+export interface TagJobSummary {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  source: TagJobSource;
+  ruleNames: string[];
+  evaluateOnly: boolean;
+  createdBy: string;
+  status: JobStatus;
+  failureReason: string | null;
+  filesTotal: number;
+  filesDone: number;
+  bytesTotal: number;
+  bytesDone: number;
+  createdAtMs: number;
+  startedAtMs: number;
+  endedAtMs: number;
+  statusCounts: Partial<Record<FileStatus, number>>;
+}
+
+export interface CreateTagJob {
+  categoryId: string;
+  ruleIds: string[];
+  evaluateOnly: boolean;
+  kind: SourceKind;
+  files?: JobInput[];
+  keys?: string[];
+  folder?: string | null;
+  recursive?: boolean;
+  fromUs?: number | null;
+  toUs?: number | null;
+  createdBy: string;
+}
+
+export interface ArchiveObject {
+  key: string;
+  size: number;
+  lastModifiedUs: number;
+}
+
+export interface ArchiveFolder {
+  prefix: string;
+  folders: string[];
+  files: ArchiveObject[];
+}
+
+export interface ArchivePreview {
+  count: number;
+  totalBytes: number;
+  maxFiles: number;
+  overLimit: boolean;
+  sample: ArchiveObject[];
+}
+
+export interface AutoTagCapabilities {
+  archiveConfigured: boolean;
+  maxFilesPerRun: number;
 }
