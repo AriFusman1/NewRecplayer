@@ -40,6 +40,8 @@ cd frontend && npm run dev
 - End-to-end check: `python3 tools/gen_samples.py OUT_DIR` writes captures plus `expected.json`
   (messages, offsets, sha256). Upload them, save records, replay to a local socket and compare.
   `tcp_server.pcapng` mixes link types on purpose and is rejected by libpcap (a known limitation).
+- Load check: `python3 tools/load_test.py --base URL --pid SERVER_PID` plays 10 mixed replays at once
+  and reports arrival timing, HTTP latency and server CPU (see README, Resources and behavior under load).
 - The build environment may be an isolated network with internal Maven/npm mirrors: every new
   dependency must exist there. Pin exact versions (backend versions live in `pom.xml` `<properties>`).
 

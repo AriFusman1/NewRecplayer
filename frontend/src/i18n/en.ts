@@ -122,7 +122,7 @@ export const en = {
   'card.uploaded': 'Uploaded by {name} · {time}',
   'card.connections': '{n} connections',
   'card.addToPlaylist': 'Add to playlist',
-  'select.noRoom': 'Not enough room: {free} free, {n} selected',
+  'select.noRoom': 'Only {free} of {max} replay slots are free and {n} are selected. Unselect some, or wait for replays to end.',
   'select.tooFew': 'Select at least 2 recordings to play together',
   'select.playTogether': 'Play together ({n})',
 
@@ -149,6 +149,7 @@ export const en = {
   'together.connected': 'Connected — waiting for the others',
   'usage.inUse': '{active}/{max} in use',
   'usage.hint': 'Replays running now for all users, out of the maximum allowed at once',
+  'usage.full': 'All {max} replay slots are in use (all users together). This is a limit, not a fault: wait for a replay to end, or stop one in Now playing.',
 
   'edit.title': 'Edit record',
   'edit.hint': 'The connection mode cannot change, so only categories with the same mode are listed.',
@@ -399,7 +400,9 @@ export const en = {
   'err.STORAGE_ERROR': 'Storage error: {reason}',
   'err.TARGET_BUSY': '{target} is already being played to (started by {by}).',
   'err.DUPLICATE_TARGET': '{target} is chosen for more than one record.',
-  'err.ACTIVE_LIMIT': 'There are {free} free slots and you tried to start {requested}. At most {max} replays can run at once, for all users together.',
+  'err.ACTIVE_LIMIT': 'The server is full, not broken: at most {max} replays run at once for all users together, and {free} are free now (you tried to start {requested}). Try again when a replay ends, or stop one in Now playing.',
+  'err.START_FAILED': 'The server could not start the replay ({reason}). Nothing is playing and no slot is held, so try again. If this keeps happening, the server is short on memory or threads.',
+  'err.SHUTTING_DOWN': 'The server is shutting down, so replays cannot start now. Try again in a minute.',
   'err.GROUP_FAILED': '[{record}] failed before the group started ({reason}), so the whole group was stopped.',
   'err.GROUP_TOO_SMALL': 'Select at least {min} recordings to play together.',
   'err.GROUP_CONNECT_TIMEOUT': 'Not all TCP clients connected within {seconds} s, so the group was stopped. Not connected: {missing}.',

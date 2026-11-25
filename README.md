@@ -288,8 +288,12 @@ through to the backend on port 8080.
        again. Stop, a failed record, or the connect timeout (`replay.group-connect-timeout-ms`) ends
        the whole group. The server refuses a group of fewer than 2 with a 400.
    - **Limit**: at most `replay.max-active-replays` (default 10) replays run at once, for all users
-     together; a replay waiting for a connection counts. Now Playing shows "7/10 in use", and a
-     start that does not fit is refused as a whole ("There are 3 free slots and you tried to start 5").
+     together; a replay waiting for a connection counts, and a playlist counts as one. Now Playing
+     shows "7/10 in use". When every slot is taken, **Play** (on the cards, in the Play dialog and in
+     the playlist) is disabled and says the server is full, not broken; **Play together** is
+     disabled while more records are selected than there are free slots, and says how many are free.
+     There is no queue: a start that does not fit (two users pressing Play at the same moment) is
+     refused at once and as a whole, with the same explanation (`ACTIVE_LIMIT`, HTTP 409).
 4. **Now playing** (a tab of its own; the thin bar at the bottom shows usage and opens it): live
    progress for every running replay. Leaving the tab does not stop anything. Click or drag
    on the graph to jump. Stop a replay, or edit the upcoming items of a playlist. Records played
@@ -379,7 +383,7 @@ All keys:
 **Memory**: JVM options go in `JAVA_OPTS` (the image uses `-XX:MaxRAMPercentage=75`). A running
 replay holds its record's payload in memory, and up to `extraction.cache-max-bytes` of parsed
 captures are kept for reuse. Size the container for the largest records you play at the same time
-plus that cache.
+plus that cache (see [Resources and behavior under load](#resources-and-behavior-under-load)).
 
 **Logging** uses `java.util.logging`. The AWS SDK logs through SLF4J, which has no binding here, so
 SLF4J prints one "no providers" line at startup and the SDK stays quiet.
@@ -438,6 +442,63 @@ docker run -p 8080:8080 -v "$PWD/config/application.yml:/app/config/application.
   listen on the ports users choose, so those must be reachable from the service under test
   (Service/NodePort or pod networking).
 - **No capture privileges** are needed: files are only read, never captured live.
+- **Resources**: see below.
+
+### Resources and behavior under load
+
+The app runs as one pod, and at most `replay.max-active-replays` (default 10) replays run in it at
+once. Each running replay is one thread. To keep send times precise, a thread parks until just
+before a message is due and then **spin-waits** the last stretch (0.2–10 ms, adapted to how late
+the OS wakes threads). Spinning keeps a core busy, so only *half the CPUs the JVM may use*
+(rounded down) spin at the same time; the others park instead and are late by the OS wake-up time,
+which is well under 1 ms on Linux. The JVM takes its CPU count from the container's CPU limit, so
+a 1-CPU pod does not spin at all and a 2-CPU pod spins one thread at a time. Records started with
+Play together are the exception: every member spins for the shared start instant.
+
+Measured with `tools/load_test.py` (10 replays at once, 4 UDP + 3 TCP server + 3 TCP client, each
+500 messages/s for 15 s, on a Windows laptop with the JVM pinned to the given CPUs; Windows wakes
+parked threads much later than Linux, so on a Linux pod the timing is better):
+
+| CPUs | Version | Server CPU | Arrival vs. due time: median / p99 / worst | `GET /health/live` median / p99 |
+|---|---|---|---|---|
+| 2 | before (every thread spins) | 187% (both CPUs full) | 45 / 233 / 345 ms | 39 / 830 ms |
+| 2 | now | 50% | 5 / 25 / 53–112 ms | 2–6 / 135–150 ms |
+| 1 | now, after JIT warm-up | 10% | 5 / 17 / 53 ms | 21 / 153 ms |
+
+Every message arrived in every run, and an 11th replay was refused with `ACTIVE_LIMIT`. On an idle
+server the probe's own p99 is ~30 ms. The heap held ~45 MB during the run (process ~150 MB):
+the replay engine's own memory is small, the script payloads are what grows.
+
+**Recommended pod resources** for the default limit of 10:
+
+```yaml
+resources:
+  requests: { cpu: "1",  memory: 1Gi }
+  limits:   { cpu: "2",  memory: 2Gi }   # 75% of it (MaxRAMPercentage) is the heap
+```
+
+- **CPU**: 1 CPU is enough for 10 replays; 2 lets one replay at a time spin for sub-millisecond
+  precision and keeps the UI responsive while records are parsed. Do not set the limit far below
+  the request: CFS throttling stalls every thread, the replays included.
+- **Memory**: a replay holds its record's payload; add the largest records played at the same time
+  to `extraction.cache-max-bytes` (default 256 MB) and ~300 MB for the JVM. Raise the limit for
+  records of hundreds of MB.
+- Thread priorities (replay threads run at maximum priority) are ignored by the JVM on Linux unless
+  it runs as root with `-XX:ThreadPriorityPolicy=1`, so they do not starve anything; replays waiting
+  for a connection or a group start block without using CPU.
+
+To measure your own setup, run the server (pinning its CPUs if you like) and in another terminal:
+
+```bash
+python3 tools/load_test.py --base http://localhost:8080 --replays 10 --rate 500 --seconds 20 --pid <server pid>
+```
+
+It writes and uploads three captures, starts the replays against local sockets, tries one more,
+probes `/health/live` (event loop) and `/api/sessions` (worker pool) every 100 ms, and prints, per
+replay, how late each message arrived relative to the first, plus HTTP latencies and the server's
+CPU (via `psutil` if installed, `/proc` on Linux, or the Windows API). Simulate a pod's CPU limit
+with `taskset -c 0,1 java -XX:ActiveProcessorCount=2 -jar …` (Linux) or
+`start "" /affinity 3 java -XX:ActiveProcessorCount=2 -jar …` (Windows).
 
 ---
 
@@ -517,6 +578,7 @@ config/application.example.yml    template for your configuration (S3 address an
 tools/gen_samples.py              generates test captures with known expected output
 tools/gen_demo.py                 writes three plain demo captures (TCP server, TCP client, UDP) to try by hand
 tools/peer.py                     a stand-in service on this machine that prints what a replay delivers
+tools/load_test.py                10 replays at once against a running server: timing, HTTP latency, CPU
 Dockerfile, docker-compose.yml
 ```
 
@@ -604,7 +666,15 @@ Receive-side artifacts are handled:
   relative to the previous send, so there is no drift.
 - The clock parks, then spin-waits the last stretch. The spin margin adapts to how late the OS
   wakes threads, so it spins only as long as this host needs. On a laptop, sends on a 1 ms grid
-  land within ~2 µs; with 20–200 ms gaps the worst case is ≈ 1 ms.
+  land within ~2 µs; with 20–200 ms gaps the worst case is ≈ 1 ms. Only half the CPUs spin at once
+  (see [Resources and behavior under load](#resources-and-behavior-under-load)).
+- **Slots**: a replay takes its slot before it starts (a group takes one per record, all or none)
+  and gives it back exactly once, in its thread's last step, however it ends: completed, stopped,
+  failed, a failed group member or connect timeout, or stopped before its thread ran. If its thread
+  cannot even be created (`START_FAILED`, HTTP 503), the slot, target and port are given back at
+  once, and in a group the members already running end with `GROUP_FAILED`. On shutdown the
+  engine refuses new replays (`SHUTTING_DOWN`), stops all and waits up to 1 s for them. Giving back
+  more slots than were taken is logged as a warning.
 - **Jumping** (seek): playback continues from the chosen point at normal speed. Messages jumped
   over are not sent, and jumping back re-sends from that point. A TCP connection stays open across
   a jump.
@@ -747,6 +817,9 @@ no connection are not delivered ("8 not delivered" in Now playing and History; t
 gets the messages from that moment on; a connection that drops is retried the same way. With
 `replay.tcp-keep-trying: false` it fails instead (`CONNECT_FAILED` / `CONNECTION_LOST`). UDP needs no
 listener (datagrams are just sent), and a TCP client replay waits for the service to connect.
+
+`tools/load_test.py` plays 10 replays at once against a running server and reports timing, HTTP
+latency and CPU; see [Resources and behavior under load](#resources-and-behavior-under-load).
 
 ---
 

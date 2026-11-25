@@ -3,7 +3,7 @@ import { MODES, type Mode } from '../../api/types';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { usePlaylist } from '../../state/playlist';
-import { useLive } from '../../state/live';
+import { useRoom } from '../../state/live';
 import { MIN_PLAY_TOGETHER } from '../../util/target';
 import { Icon } from '../../components/common/Icon';
 import { PlaylistDrawer } from '../../components/playlist/PlaylistDrawer';
@@ -37,14 +37,11 @@ export function PlayerPage() {
   // in the order they were picked; records deleted meanwhile drop out of the selection
   const selected = selectedIds.filter((id) => recordById.has(id));
 
-  // The server allows `usage.max` replays at once for everyone together, so starting a group needs
-  // that many free slots (it checks again when Play is pressed). max 0 = not known yet: no check.
-  const { usage } = useLive();
-  const freeSlots = Math.max(0, usage.max - usage.active);
+  // The server allows a limited number of replays at once for everyone together, so starting a
+  // group needs that many free slots (it checks again when Play is pressed).
+  const { blockedFor } = useRoom();
   /** Why Play together cannot start now, or null. One record is played with Play. */
-  const playBlocked = selected.length < MIN_PLAY_TOGETHER ? t('select.tooFew')
-    : usage.max > 0 && selected.length > freeSlots ? t('select.noRoom', { free: freeSlots, n: selected.length })
-      : null;
+  const playBlocked = selected.length < MIN_PLAY_TOGETHER ? t('select.tooFew') : blockedFor(selected.length);
 
   // NaN = typed but not a valid date (the field turns red and the filter is ignored)
   const fromUs = from ? parseBoundUs(from, false) ?? NaN : null;

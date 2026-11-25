@@ -204,10 +204,16 @@ public class ReplaySession implements Runnable {
                 if (hasNext && !stopRequested() && item.sleepAfterMs.get() > 0) sleepBetweenItems(item);
             }
         } finally {
-            if (group != null && firstOutcome != null) {
-                group.memberEnded(this, stoppedBy.get(), firstOutcome.failure()); // no-op once the group has started
+            try {
+                // stopped before the first item even began: its pre-taken target and port are still held
+                if (firstLockKey != null) releasePreAcquired();
+
+                if (group != null) { // no-op once the group has started; no outcome = stopped before playing
+                    group.memberEnded(this, stoppedBy.get(), firstOutcome == null ? null : firstOutcome.failure());
+                }
+            } finally {
+                engine.finished(this);
             }
-            engine.finished(this);
         }
     }
 

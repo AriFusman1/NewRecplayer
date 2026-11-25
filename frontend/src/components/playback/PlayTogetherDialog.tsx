@@ -5,6 +5,7 @@ import type { ItemRequest, Mode, PcapRecord } from '../../api/types';
 import { useI18n } from '../../i18n';
 import { useCatalog } from '../../state/catalog';
 import { useFeedback } from '../../state/feedback';
+import { useRoom } from '../../state/live';
 import { useNickname } from '../../state/nickname';
 import { targetKey, targetValid, toItemRequest } from '../../util/target';
 import { rememberTargets, suggestTarget } from '../../util/targetMemory';
@@ -55,6 +56,8 @@ export function PlayTogetherDialog({ records, onClose, onStarted }: {
   }, [entries]);
   const allValid = entries.length > 0 && duplicates.size === 0
     && entries.every((entry) => targetValid(entry.mode, entry.host, entry.port));
+  /** Slots may be taken by others while the dialog is open: say how many are free. */
+  const noRoom = useRoom().blockedFor(entries.length);
 
   const update = (recordId: string, host: string | null, port: number) => {
     setEntries((list) => list.map((entry) => (entry.record.id === recordId ? { ...entry, host, port } : entry)));
@@ -62,7 +65,7 @@ export function PlayTogetherDialog({ records, onClose, onStarted }: {
   };
 
   const start = async () => {
-    if (!allValid || busy) return;
+    if (!allValid || busy || noRoom) return;
     const items: ItemRequest[] = entries.map((entry) =>
       toItemRequest({ recordId: entry.record.id, host: entry.host, port: entry.port, sleepAfterMs: 0 }));
     setBusy(true);
@@ -88,11 +91,12 @@ export function PlayTogetherDialog({ records, onClose, onStarted }: {
     <Modal title={t('together.title', { n: entries.length })} icon="info" onClose={onClose} wide
       footer={<>
         <button className="btn ghost" onClick={onClose}>{t('common.cancel')}</button>
-        <button className="btn primary" disabled={!allValid || busy} onClick={start}>
+        <button className="btn primary" disabled={!allValid || busy || noRoom !== null} title={noRoom ?? undefined} onClick={start}>
           <Icon name="play" size={12} />{t('together.start', { n: entries.length })}
         </button>
       </>}>
       <p className="small muted">{t('together.hint')}</p>
+      {noRoom && <p className="small" role="status" style={{ color: 'var(--warning)' }}>{noRoom}</p>}
       <form className="together-list" onSubmit={(e) => { e.preventDefault(); void start(); }}>
         {entries.map((entry, index) => {
           const duplicate = duplicates.has(entry.record.id);

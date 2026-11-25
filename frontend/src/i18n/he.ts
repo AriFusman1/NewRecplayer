@@ -124,7 +124,7 @@ export const he: Record<MessageKey, string> = {
   'card.uploaded': 'הועלה ע״י {name} · {time}',
   'card.connections': '{n} חיבורים',
   'card.addToPlaylist': 'הוספה לרשימת השמעה',
-  'select.noRoom': 'אין מספיק מקום: {free} פנויים, {n} נבחרו',
+  'select.noRoom': 'רק {free} מתוך {max} מקומות השמעה פנויים, ונבחרו {n}. בטלו את הבחירה של חלק מהן, או חכו שהשמעות יסתיימו.',
   'select.tooFew': 'בחרו לפחות 2 הקלטות כדי לנגן יחד',
   'select.playTogether': 'ניגון יחד ({n})',
 
@@ -151,6 +151,7 @@ export const he: Record<MessageKey, string> = {
   'together.connected': 'מחובר — ממתין לשאר',
   'usage.inUse': '{active}/{max} בשימוש',
   'usage.hint': 'השמעות שרצות כרגע אצל כל המשתמשים, מתוך המקסימום המותר במקביל',
+  'usage.full': 'כל {max} מקומות ההשמעה תפוסים (לכל המשתמשים יחד). זו מגבלה ולא תקלה: חכו שהשמעה תסתיים, או עצרו אחת בעמוד מנגן כעת.',
 
   'edit.title': 'עריכת רשומה',
   'edit.hint': 'לא ניתן לשנות את מצב החיבור, ולכן מוצגות רק קטגוריות עם אותו מצב.',
@@ -401,7 +402,9 @@ export const he: Record<MessageKey, string> = {
   'err.STORAGE_ERROR': 'שגיאת אחסון: {reason}',
   'err.TARGET_BUSY': 'כבר מתבצעת השמעה אל {target} (הופעלה ע״י {by}).',
   'err.DUPLICATE_TARGET': 'היעד {target} נבחר ליותר מרשומה אחת.',
-  'err.ACTIVE_LIMIT': 'יש {free} מקומות פנויים וניסית להפעיל {requested}. לכל היותר {max} השמעות יכולות לרוץ במקביל, לכל המשתמשים יחד.',
+  'err.ACTIVE_LIMIT': 'השרת מלא, לא תקול: לכל היותר {max} השמעות רצות במקביל לכל המשתמשים יחד, וכרגע פנויים {free} (ניסית להפעיל {requested}). נסו שוב כשהשמעה תסתיים, או עצרו אחת בעמוד מנגן כעת.',
+  'err.START_FAILED': 'השרת לא הצליח להפעיל את ההשמעה ({reason}). שום דבר לא מתנגן ולא נתפס מקום, אז אפשר לנסות שוב. אם זה חוזר, לשרת חסרים זיכרון או threads.',
+  'err.SHUTTING_DOWN': 'השרת בתהליך כיבוי, ולכן אי אפשר להפעיל השמעות כרגע. נסו שוב בעוד דקה.',
   'err.GROUP_FAILED': '[{record}] נכשלה לפני שהקבוצה התחילה ({reason}), ולכן כל הקבוצה נעצרה.',
   'err.GROUP_TOO_SMALL': 'בחרו לפחות {min} הקלטות כדי לנגן יחד.',
   'err.GROUP_CONNECT_TIMEOUT': 'לא כל ה־TCP clients התחברו תוך {seconds} שניות, ולכן הקבוצה נעצרה. לא התחברו: {missing}.',

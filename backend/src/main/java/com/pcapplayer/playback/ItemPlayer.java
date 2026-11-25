@@ -83,7 +83,11 @@ public final class ItemPlayer {
             } else {
                 ScriptStep step = steps.get(i);
 
-                if (PreciseClock.sleepUntilOrSeek(zeroNanos + step.offsetNanos(), control)) {
+                // a group's first message leaves at its shared start instant: spin for it even past the spin limit
+                boolean groupStart = i == 0 && startAtNanos > 0;
+                long due = zeroNanos + step.offsetNanos();
+
+                if (groupStart ? PreciseClock.sleepUntilOrSeekAlwaysSpin(due, control) : PreciseClock.sleepUntilOrSeek(due, control)) {
                     zeroNanos = run(i, step, zeroNanos, transport, control, progress, state, log, timeFixer);
                     i++;
                     control.checkAlive();

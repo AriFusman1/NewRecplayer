@@ -138,12 +138,8 @@ public final class Main {
 
     private static void registerShutdownHook(Vertx vertx, ReplayEngine engine) {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            engine.stopAll("server shutdown");
-
-            try {
-                Thread.sleep(SHUTDOWN_GRACE_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            if (!engine.shutdown("server shutdown", SHUTDOWN_GRACE_MS)) {
+                LOG.warning("Some replays had not ended " + SHUTDOWN_GRACE_MS + " ms after being stopped");
             }
             vertx.close();
         }));
