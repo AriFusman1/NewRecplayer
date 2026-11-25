@@ -46,7 +46,7 @@ export function RulesPicker({ view, selectedIds, onSelected, onChanged }: Props)
           <div className="grow" style={{ minWidth: 0 }}>
             <div className="strong"><bdi>{rule.name}</bdi></div>
             {rule.conditions.map((condition, i) => (
-              <div key={i} className="small mono ltr rule-summary">{i > 0 ? `${t('rule.AND')} ` : ''}{conditionText(condition, view.tree, words)}</div>
+              <div key={i} className="small mono ltr-block rule-summary">{i > 0 ? `${t('rule.AND')} ` : ''}{conditionText(condition, view.tree, words)}</div>
             ))}
           </div>
           <button className="btn ghost icon sm" title={t('common.edit')} disabled={!view.tree} onClick={() => setEditing(rule)}><Icon name="edit" /></button>
