@@ -5,6 +5,7 @@ import com.pcapplayer.pcapProcessing.script.EConnectionMode;
 import com.pcapplayer.recordManagement.model.Category;
 import com.pcapplayer.recordManagement.model.Tag;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -100,6 +101,32 @@ public class TaxonomyService {
             all.add(tag);
             writeToStorage(() -> catalog.repo.saveTags(all));
             return tag;
+        });
+    }
+
+    /**
+     * The ids of the tags with these names, creating the missing ones (names compared ignoring case).
+     * Auto-tagging puts the names of the matched rules on records this way.
+     */
+    public List<String> ensureTags(List<String> names) {
+        return catalog.mutate(() -> {
+            List<Tag> all = catalog.repo.tags();
+            List<String> ids = new ArrayList<>();
+            boolean added = false;
+
+            for (String name : names) {
+                String trimmedName = requireName(name);
+                Tag tag = all.stream().filter(existing -> existing.name().equalsIgnoreCase(trimmedName)).findFirst().orElse(null);
+
+                if (tag == null) {
+                    tag = new Tag(UUID.randomUUID().toString(), trimmedName);
+                    all.add(tag);
+                    added = true;
+                }
+                if (!ids.contains(tag.id())) ids.add(tag.id());
+            }
+            if (added) writeToStorage(() -> catalog.repo.saveTags(all));
+            return ids;
         });
     }
 

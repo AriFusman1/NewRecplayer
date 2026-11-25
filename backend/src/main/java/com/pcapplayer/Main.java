@@ -1,5 +1,8 @@
 package com.pcapplayer;
 
+import com.pcapplayer.autotag.archive.ArchiveService;
+import com.pcapplayer.autotag.archive.S3ArchiveStore;
+import com.pcapplayer.autotag.job.TagJobService;
 import com.pcapplayer.configuration.AppConfig;
 import com.pcapplayer.configuration.ConfigLoader;
 import com.pcapplayer.icd.loading.IcdRegistry;
@@ -70,13 +73,22 @@ public final class Main {
                         config.replay().groupConnectTimeoutMs(), config.replay().tcpKeepTrying(),
                         config.replay().tcpRetryIntervalMs()));
 
+        ArchiveService archive = new ArchiveService(config.archiveS3().configured() ? new S3ArchiveStore(config.archiveS3()) : null,
+                config.autoTag().maxFilesPerRun());
+        TagJobService tagJobs = new TagJobService(repo, catalog, archive, extractionSettings,
+                new TagJobService.Settings(config.autoTag().maxFilesPerRun(), Math.max(1, config.autoTag().workers()),
+                        Math.max(1, config.autoTag().maxConcurrentJobs()), config.autoTag().floatTolerance(), work,
+                        TimeUnit.MINUTES.toMillis(config.upload().expireMinutes())),
+                Clock.systemUTC());
+
         Vertx vertx = Vertx.vertx(new VertxOptions()
                 .setMaxWorkerExecuteTime(MAX_WORKER_EXECUTE_MINUTES).setMaxWorkerExecuteTimeUnit(TimeUnit.MINUTES));
         hub.start(vertx, engine);
         AtomicBoolean ready = new AtomicBoolean();
-        startHttp(vertx, config, new ApiServer.Services(catalog, uploads, cache, engine, hub, store, ready::get));
-        schedulePurge(vertx, uploads);
-        loadMetadata(vertx, repo, ready);
+        startHttp(vertx, config, new ApiServer.Services(catalog, uploads, cache, engine, hub, store, ready::get,
+                tagJobs, archive));
+        schedulePurge(vertx, uploads, tagJobs);
+        loadMetadata(vertx, repo, ready, tagJobs);
         registerShutdownHook(vertx, engine);
     }
 
@@ -114,24 +126,26 @@ public final class Main {
                 });
     }
 
-    private static void schedulePurge(Vertx vertx, UploadService uploads) {
+    private static void schedulePurge(Vertx vertx, UploadService uploads, TagJobService tagJobs) {
         vertx.setPeriodic(PURGE_UPLOADS_EVERY_MS, id -> vertx.executeBlocking(() -> {
             uploads.purgeExpired();
+            tagJobs.purgeAbandoned();
             return null;
         }, false));
     }
 
     /** Readiness stays DOWN until the metadata is loaded; retries periodically (storage may start later). */
-    private static void loadMetadata(Vertx vertx, CatalogRepository repo, AtomicBoolean ready) {
+    private static void loadMetadata(Vertx vertx, CatalogRepository repo, AtomicBoolean ready, TagJobService tagJobs) {
         vertx.executeBlocking(() -> {
             repo.load();
+            tagJobs.recoverInterrupted(); // jobs cut off by a restart become FAILED
             return null;
         }, false).onComplete(result -> {
             if (result.succeeded()) {
                 ready.set(true);
             } else {
                 LOG.warning("Loading metadata failed, retrying in " + METADATA_RETRY_MS + " ms: " + result.cause().getMessage());
-                vertx.setTimer(METADATA_RETRY_MS, id -> loadMetadata(vertx, repo, ready));
+                vertx.setTimer(METADATA_RETRY_MS, id -> loadMetadata(vertx, repo, ready, tagJobs));
             }
         });
     }
