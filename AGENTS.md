@@ -13,6 +13,9 @@ PCAP Player: upload a pcap/pcapng capture, cut a time range of one service's tra
   `backend/src/main/resources/webroot/` (git-ignored) and served by the backend.
 - `config/application.example.yml`: configuration template. `tools/gen_samples.py`: generates test
   captures with their expected replay output.
+- `tools/icd-converter/`: Java 17 + JavaParser; legacy annotated message classes → annotation-style ICD
+  JSON. `skills/icd-from-annotations/`: the same conversion as a language-model skill (SKILL.md,
+  examples shared with the converter and backend tests, `scripts/check_icd.py`).
 
 ## Build, test, run
 
@@ -40,6 +43,10 @@ cd frontend && npm run dev
 - End-to-end check: `python3 tools/gen_samples.py OUT_DIR` writes captures plus `expected.json`
   (messages, offsets, sha256). Upload them, save records, replay to a local socket and compare.
   `tcp_server.pcapng` mixes link types on purpose and is rejected by libpcap (a known limitation).
+- ICD converter: `cd tools/icd-converter && mvn -q package` (tests convert every skill example).
+  Skill checker tests: `python3 -m unittest discover -s skills/icd-from-annotations/tests`.
+  A change to the annotation-style format touches the loader (`icd/loading/annotationJson`), the converter,
+  the skill (SKILL.md, reference, `check_icd.py`) and the examples together.
 - Load check: `python3 tools/load_test.py --base URL --pid SERVER_PID` plays 10 mixed replays at once
   and reports arrival timing, HTTP latency and server CPU (see README, Resources and behavior under load).
 - The build environment may be an isolated network with internal Maven/npm mirrors: every new

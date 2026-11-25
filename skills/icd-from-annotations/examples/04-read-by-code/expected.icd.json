@@ -1,0 +1,71 @@
+{
+  "format": "annotations",
+  "id": "example-code",
+  "name": "Example 4: fields read by code",
+  "header": {
+    "class": "Header",
+    "opcodeField": "msgType",
+    "lengthField": "msgLength",
+    "lengthIncludesHeader": true
+  },
+  "messages": [
+    {
+      "opcode": "0x04",
+      "class": "Lookup"
+    }
+  ],
+  "classes": {
+    "Header": {
+      "fields": [
+        {
+          "ordinal": 0,
+          "name": "msgType",
+          "type": "int",
+          "unsigned": true,
+          "description": "Which message follows."
+        },
+        {
+          "ordinal": 1,
+          "name": "msgLength",
+          "type": "int",
+          "unsigned": true,
+          "description": "The whole message length in bytes, header included."
+        }
+      ],
+      "binaryData": true,
+      "description": "The header every message starts with."
+    },
+    "Lookup": {
+      "binaryData": true,
+      "description": "name exists only when doesNameExist(bool) says so; tableName is read by a customizer.",
+      "fields": [
+        {
+          "ordinal": 0,
+          "name": "code",
+          "type": "int"
+        },
+        {
+          "ordinal": 7,
+          "name": "bool",
+          "type": "int"
+        },
+        {
+          "ordinal": 10,
+          "name": "name",
+          "type": "int",
+          "existenceEncoded": {
+            "method": "doesNameExist",
+            "params": "bool",
+            "isAbsolutePath": true
+          }
+        },
+        {
+          "ordinal": 11,
+          "name": "tableName",
+          "type": "Byte[]",
+          "custom": "ReadString"
+        }
+      ]
+    }
+  }
+}

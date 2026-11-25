@@ -306,7 +306,9 @@ through to the backend on port 8080.
    be shared.
 6. **Time fixing** (optional): rewrite the time fields inside messages to the moment they are sent.
    - On **Categories & Tags**, upload an ICD in the **ICDs** card. The file is JSON, in the format
-     described in [docs/icd-json-format.md](docs/icd-json-format.md); an invalid file is rejected with
+     described in [docs/icd-json-format.md](docs/icd-json-format.md), or in the annotation style
+     (`"format": "annotations"`) that mirrors legacy annotated Java classes
+     ([reference](skills/icd-from-annotations/reference/annotations.md)); an invalid file is rejected with
      every problem listed. Then choose the ICD in the category's dropdown.
    - Click the clock button next to the category to open its **Time fix** page. Open a message type,
      choose one **base** field and tick the fields to **fix**, giving each its time kind
@@ -540,6 +542,8 @@ backend/                          Maven project; all versions pinned in pom.xml 
       annotations/         @Icd, @IcdMessage, @IcdField, ... for ICDs written as Java classes
       loading/             AnnotationIcdLoader, JsonIcdLoader, IcdModelValidator (rules shared by both), BuiltInIcds,
                            IcdRegistry (the ICDs the server knows)
+        annotationJson/    AnnotationJsonIcdLoader: the annotation-style JSON ("format": "annotations"), translated
+                           into the same model (ClassTranslator, BitGroup, JavaTypes)
       decode/              script → messages: ScriptDecoder, FlowFramer (per-flow message reassembly),
                            MessageDecoder (bytes → field values and positions), DecodedMessage, DecodeStats
       analysis/            MessageAnalyzer (consumer of decoded messages), MessageCountAnalyzer, DecodeReport
@@ -607,6 +611,8 @@ tools/gen_samples.py              generates test captures with known expected ou
 tools/gen_demo.py                 writes three plain demo captures (TCP server, TCP client, UDP) to try by hand
 tools/peer.py                     a stand-in service on this machine that prints what a replay delivers
 tools/load_test.py                10 replays at once against a running server: timing, HTTP latency, CPU
+tools/icd-converter/              annotated Java classes (legacy @Ordinal, @Bits, ...) → annotation-style ICD JSON
+skills/icd-from-annotations/      the same conversion as a skill for a language model (SKILL.md, examples, checker)
 Dockerfile, docker-compose.yml
 ```
 
@@ -639,7 +645,9 @@ Dockerfile, docker-compose.yml
 - **A storage backend**: implement `persistence/BlobStore`.
 - **A link type**: one case in `pcapProcessing/decode/LinkDecoder`.
 - **An ICD**: write it in JSON ([format](docs/icd-json-format.md)), or as annotated Java classes in
-  `icd/versions/<version>/` with the holder class listed in `icd/loading/BuiltInIcds`.
+  `icd/versions/<version>/` with the holder class listed in `icd/loading/BuiltInIcds`. For message
+  classes written with the legacy annotations (`@Ordinal`, `@Bits`, `@Unsigned` ...), see
+  [ICDs from legacy annotated classes](#icds-from-legacy-annotated-classes).
 - **An endpoint**: add a method to the right service, a route in the matching `web/routes/*Routes` class, and a
   function in `frontend/src/api/client.ts`.
 
@@ -743,7 +751,45 @@ then be cut into messages and decoded:
   - a message cut by a capture gap or the end of the record
   - a message that does not match its definition
 - `GET /api/records/{id}/decode` shows the result, to check an ICD against real traffic. Add
-  `?icd=<id>` to try an ICD before assigning it to the category.
+  `?icd=<id>` to try an ICD before assigning it to the category. A field with a fixed point shows its
+  real value; one that is out of its valid range or holds its invalidity value says so
+  (`360.5 (OUT_OF_RANGE)`).
+
+### ICDs from legacy annotated classes
+
+Legacy systems describe each message as a Java class whose fields carry annotations from the
+`iaf.ofek.oryekarot.general.io` library (`@Ordinal`, `@Bits`, `@Unsigned`, `@Size`, `@LengthEncoded`,
+`@FixedPoint`, `@Enumerable` ...). PCAP Player reads such an ICD as JSON in the **annotation style**:
+the same classes and fields, one JSON property per annotation (`"format": "annotations"`,
+[reference](skills/icd-from-annotations/reference/annotations.md)). The loader turns it into the usual
+model: fields read by ordinal, consecutive `@Bits` cut from one chunk, sizes from the Java types and
+`@Unsigned`, lengths in bytes or written before the array. Fields read by code (`@ExistenceEncoded`,
+`@Custom`, `@Encoded`) end the decodable part of a message; the rest of its bytes are kept and sent as
+they are.
+
+There are two ways to write that JSON from the classes:
+
+- **The converter** (Java 17): reads the `.java` files with JavaParser, so it needs neither the
+  annotation library nor compiled classes. Give it the source folder and a small config naming the
+  header class, its opcode and length fields, and each message's opcode (the annotations do not say):
+
+  ```bash
+  cd tools/icd-converter && mvn -q package
+  java -jar tools/icd-converter/target/icd-converter.jar path/to/sources icd-config.json gw.icd.json
+  ```
+
+  It prints a warning for every field it skipped (no `@Ordinal`), every field read by code, and every
+  annotation it does not know. A config looks like
+  `skills/icd-from-annotations/examples/01-basic/input/icd-config.json`.
+- **The skill** `skills/icd-from-annotations/` for a language model (for example Qwen): give it
+  `SKILL.md` (and `reference/annotations.md`) with the classes and the config. It checks its own output
+  with `scripts/check_icd.py`. To measure a model, give it each `examples/<name>/input`, save its answers
+  as `OUT/<name>.icd.json`, and run `python3 skills/icd-from-annotations/scripts/score_outputs.py OUT`.
+
+The examples under `skills/icd-from-annotations/examples/` are shared: the converter's tests convert
+each one and compare with its `expected.icd.json`, the skill's tests check those files, and the backend
+tests load them and decode real bytes with them. The open assumptions (bit order inside a chunk, and how
+`@Unsigned` sizes a field) are listed at the end of the reference.
 
 ### Auto tagging
 

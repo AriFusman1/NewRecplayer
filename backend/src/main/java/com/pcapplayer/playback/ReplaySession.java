@@ -196,7 +196,9 @@ public class ReplaySession implements Runnable {
     @Override
     public void run() {
         try {
-            for (int index = 0; !stopRequested(); index++) {
+            // the first item always goes through playItem, even when stopped before it began, so it is
+            // recorded in History as STOPPED and its pre-taken target is released the usual way
+            for (int index = 0; index == 0 || !stopRequested(); index++) {
                 SessionItem item = makeCurrent(index);
                 if (item == null) break;
                 playItem(item, index);
@@ -205,7 +207,7 @@ public class ReplaySession implements Runnable {
             }
         } finally {
             try {
-                // stopped before the first item even began: its pre-taken target and port are still held
+                // only if playItem never ran (it failed before the first item): the pre-taken target and port
                 if (firstLockKey != null) releasePreAcquired();
 
                 if (group != null) { // no-op once the group has started; no outcome = stopped before playing

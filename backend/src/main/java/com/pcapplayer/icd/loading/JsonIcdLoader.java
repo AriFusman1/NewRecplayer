@@ -3,6 +3,7 @@ package com.pcapplayer.icd.loading;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.pcapplayer.common.Json;
+import com.pcapplayer.icd.loading.annotationJson.AnnotationJsonIcdLoader;
 import com.pcapplayer.icd.model.ArrayDef;
 import com.pcapplayer.icd.model.BitDef;
 import com.pcapplayer.icd.model.BitfieldDef;
@@ -32,7 +33,8 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * Builds an {@link IcdDefinition} from the JSON format described in {@code docs/icd-json-format.md}
+ * Builds an {@link IcdDefinition} from the JSON format described in {@code docs/icd-json-format.md}, or
+ * hands an ICD with {@code "format": "annotations"} to {@link AnnotationJsonIcdLoader}
  * (schema: {@code icd/icd.schema.json}). Every problem is reported with its JSON path, and all problems
  * are reported together.
  * <p>
@@ -77,6 +79,7 @@ public final class JsonIcdLoader {
         } catch (IOException e) {
             throw new IcdLoadException(List.of(new IcdProblem("$", "cannot read: " + e.getMessage())));
         }
+        if (AnnotationJsonIcdLoader.accepts(root)) return AnnotationJsonIcdLoader.load(root); // the annotation style
         return new JsonIcdLoader().loadIcd(root);
     }
 
