@@ -665,3 +665,11 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* messages a TCP server replay could not deliver (no connection at the time) */
 .missed { color: var(--warning); }
 
+/* ---------------------------------------------------------------- time fix */
+.tf-message { padding: 14px 18px; }
+.tf-message-head { display: flex; align-items: center; gap: 12px; cursor: pointer; flex-wrap: wrap; }
+.tf-chevron { width: 14px; color: var(--muted); }
+.tf-toggle { width: 22px; min-width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
+.tf-tree td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
+.tf-tree tr.tf-chosen td { background: var(--accent-soft); }
+.tf-tree input[type="radio"], .tf-tree input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }

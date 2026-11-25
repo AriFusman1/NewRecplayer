@@ -1,0 +1,70 @@
+{
+  "$schema": "https://pcap-player/icd.schema.json",
+  "id": "sample-v1",
+  "name": "Sample ICD v1",
+  "byteOrder": "BIG_ENDIAN",
+  "header": {
+    "lengthIncludesHeader": true,
+    "lengthUnit": "BYTES",
+    "maxMessageBytes": 4096,
+    "fields": [
+      { "name": "opcode",   "type": "UINT16", "role": "opcode" },
+      { "name": "length",   "type": "UINT16", "role": "length" },
+      { "name": "sequence", "type": "UINT32" },
+      { "name": "sendTime", "type": "UINT32", "description": "LTime: seconds since UTC midnight" }
+    ]
+  },
+  "enums": {
+    "StatusCode": { "type": "UINT8", "values": { "0": "OFF", "1": "STANDBY", "2": "OPERATIONAL", "255": "FAULT" } },
+    "TargetKind": { "type": "INT8",  "values": { "-1": "UNKNOWN", "1": "AIR", "2": "SURFACE" } }
+  },
+  "structs": {
+    "Position": {
+      "fields": [
+        { "name": "lat", "type": "FLOAT32" },
+        { "name": "lon", "type": "FLOAT32" },
+        { "name": "alt", "type": "INT16" }
+      ]
+    },
+    "Target": {
+      "fields": [
+        { "name": "id",      "type": "UINT16" },
+        { "name": "pos",     "struct": "Position" },
+        { "name": "seenGps", "type": "UINT32", "description": "GPS: 25 µs ticks since UTC midnight" },
+        { "name": "kind",    "enum": "TargetKind" }
+      ]
+    }
+  },
+  "messages": [
+    {
+      "opcode": "0x0001",
+      "name": "Status",
+      "fields": [
+        { "name": "status",   "enum": "StatusCode" },
+        { "name": "flags",    "bitfield": { "type": "UINT8", "bitOrder": "MSB_FIRST",
+                                            "bits": [ { "name": "ready", "bits": 1 },
+                                                      { "name": "mode",  "bits": 3 },
+                                                      { "name": "spare", "bits": 4 } ] } },
+        { "name": "reserved", "padding": 2 },
+        { "name": "unitName", "string": { "length": 8, "encoding": "US-ASCII" } },
+        { "name": "timestampMs", "type": "INT64", "description": "Regular time in milliseconds" },
+        { "name": "counter",  "type": "UINT32", "byteOrder": "LITTLE_ENDIAN" },
+        { "name": "healthy",  "type": "BOOL" }
+      ]
+    },
+    {
+      "opcode": "0x0002",
+      "name": "Track",
+      "byteOrder": "LITTLE_ENDIAN",
+      "fields": [
+        { "name": "gpsTime",      "type": "UINT64", "description": "GPS: 25 µs ticks since UTC midnight" },
+        { "name": "epochSeconds", "type": "UINT32", "byteOrder": "BIG_ENDIAN", "description": "Regular time in seconds" },
+        { "name": "ltimeExact",   "type": "FLOAT64", "description": "LTime with a fraction" },
+        { "name": "targetCount",  "type": "UINT8" },
+        { "name": "targets",      "struct": "Target", "array": { "lengthField": "targetCount" } },
+        { "name": "samples",      "type": "INT16", "array": { "length": 3 } },
+        { "name": "temperature",  "type": "INT8" }
+      ]
+    }
+  ]
+}

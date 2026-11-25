@@ -1,10 +1,12 @@
 package com.pcapplayer.web.routes;
 
+import com.pcapplayer.errorHandling.ApiException;
 import com.pcapplayer.pcapProcessing.script.EConnectionMode;
 import com.pcapplayer.persistence.FileCache;
 import com.pcapplayer.recordManagement.model.PcapFile;
 import com.pcapplayer.recordManagement.service.CatalogService;
 import com.pcapplayer.recordManagement.service.PlaylistService;
+import com.pcapplayer.recordManagement.service.RecordDecodeService;
 import com.pcapplayer.recordManagement.service.RecordService;
 import com.pcapplayer.recordManagement.service.TaxonomyService;
 import com.pcapplayer.web.Http;
@@ -34,6 +36,7 @@ public final class CatalogRoutes {
         router.get("/api/catalog").handler(context -> http.blocking(context, catalog::catalog));
         router.get("/api/history").handler(context -> http.blocking(context, catalog::history));
         mountRecords(router, http, catalog.records(), cache);
+        mountDecoding(router, http, catalog.decoding());
         mountTaxonomy(router, http, catalog.taxonomy());
         mountPlaylists(router, http, catalog.playlists());
     }
@@ -50,6 +53,23 @@ public final class CatalogRoutes {
                 records.update(id(context), Http.body(context, RecordService.UpdateRequest.class))));
         router.delete("/api/records/:id").handler(context -> http.blockingVoid(context, () -> records.delete(id(context))));
         router.get("/api/records/:id/download").handler(context -> download(context, records, cache));
+    }
+
+    /** Debug: {@code GET /api/records/:id/decode?limit=N&opcode=X&icd=ID} (icd defaults to the category's). */
+    private static void mountDecoding(Router router, Http http, RecordDecodeService decoding) {
+        router.get("/api/records/:id/decode").handler(context -> http.blocking(context, () -> decoding.decode(id(context),
+                intParam(context, "limit"), context.request().getParam("opcode"), context.request().getParam("icd"))));
+    }
+
+    private static Integer intParam(RoutingContext context, String name) {
+        String value = context.request().getParam(name);
+        if (value == null || value.isBlank()) return null;
+
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            throw ApiException.badRequest("INVALID_PARAM", name + " must be an integer");
+        }
     }
 
     /** Streams the record's capture file as an attachment named like the original upload. */

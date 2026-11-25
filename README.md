@@ -297,6 +297,17 @@ through to the backend on port 8080.
    Start and End (the same calendar and clock as everywhere else), `100` / `>100` / `<50` /
    `100-500` for Messages, and the Result options. Filters live in the URL, so a filtered view can
    be shared.
+6. **Time fixing** (optional): rewrite the time fields inside messages to the moment they are sent.
+   - On **Categories & Tags**, upload an ICD in the **ICDs** card. The file is JSON, in the format
+     described in [docs/icd-json-format.md](docs/icd-json-format.md); an invalid file is rejected with
+     every problem listed. Then choose the ICD in the category's dropdown.
+   - Click the clock button next to the category to open its **Time fix** page. Open a message type,
+     choose one **base** field and tick the fields to **fix**, giving each its time kind
+     (Regular s/ms, LTime, GPS). Fields inside arrays are chosen once and fixed in every element.
+     Save.
+   - Every replay of the category's records now fixes those fields. The time kinds and the exact
+     rules are in [docs/time-fix.md](docs/time-fix.md). To check an ICD against a real record, open
+     `/api/records/{id}/decode`.
 
 ---
 
@@ -443,12 +454,28 @@ backend/                          Maven project; all versions pinned in pom.xml 
       flow/                rebuilding flows: TCP stream reassembly, UDP de-duplication
       summary/             the upload summary: CaptureScanner, CaptureSummary, Timeline (graph data)
       extract/             packets → replay script: MessageExtractor, its filter/settings/result, CachingExtractor
-      script/              the replay script itself: ReplayScript, ScriptStep, EConnectionMode, Histogram
+      script/              the replay script itself: ReplayScript, ScriptStep, ScriptFlow, EConnectionMode, Histogram
       diagnostics/         Warning: problems found in a capture (truncation, gaps, duplicates, ...)
+    icd/                   ICDs (interface control documents) for decoding messages; see docs/icd-json-format.md
+      model/               the format-agnostic model: IcdDefinition, HeaderDef, MessageDef, FieldDef, ...
+      annotations/         @Icd, @IcdMessage, @IcdField, ... for ICDs written as Java classes
+      loading/             AnnotationIcdLoader, JsonIcdLoader, IcdModelValidator (rules shared by both), BuiltInIcds,
+                           IcdRegistry (the ICDs the server knows)
+      decode/              script → messages: ScriptDecoder, FlowFramer (per-flow message reassembly),
+                           MessageDecoder (bytes → field values and positions), DecodedMessage, DecodeStats
+      analysis/            MessageAnalyzer (consumer of decoded messages), MessageCountAnalyzer, DecodeReport
+      timefix/             time fixing: ETimeKind, TimeCodec (value ↔ instant), TimeAnchoring, FieldWriter,
+                           TimeFixPlanner (decoded messages + profile → PatchPlan), MessagePatch, StepCopies
+      profile/             TimeFixProfile: per category, the base field and fields to fix of each message;
+                           TimeFixProfileValidator
+      tree/                IcdTree: an ICD's structure for the UI (paths, types, sizes, which fields hold numbers)
+      versions/            one sub-package per ICD version written in Java
     recordManagement/
       service/             business rules: RecordService (preview, create, edit, delete), TaxonomyService
                            (categories, tags), PlaylistService, RecordScriptSource (records → replay
-                           scripts), CatalogService (entry point), CatalogSupport (shared lock and helpers)
+                           scripts), IcdService (ICDs, category → ICD), TimeFixService (profiles),
+                           RecordDecodeService (debug decode), CatalogService (entry point),
+                           CatalogSupport (shared lock and helpers)
       model/               the stored data: Record, Category, Tag, PcapFile, SavedPlaylist, RecordStats
       repository/          CatalogRepository: all metadata in memory, written through to storage
     uploadHandling/        UploadService: uploads in progress (hash and scan)
@@ -467,7 +494,7 @@ backend/                          Maven project; all versions pinned in pom.xml 
 frontend/src/
   api/                     client.ts (one function per endpoint), types.ts (mirrors the backend JSON), live.ts (WebSocket)
   state/                   React contexts: catalog, live sessions, playlist draft, upload in progress, feedback (popups, toasts, useAction)
-  pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/
+  pages/                   one folder per page: player/, upload/ (and its parts), catalog/, history/, playing/, timefix/
   components/
     common/                small reusable pieces: Modal, Icon, Badges, Stat, TimeField, Sortable (drag-to-reorder)
     layout/                app frame: Header, BottomNav, FeedbackView (toasts, popups), NicknameDialog
@@ -475,9 +502,14 @@ frontend/src/
     records/               RecordCard, EditRecordDialog, RecordPicker, BulkTagDialog, CategorySelect and TagInput (pick or create in place)
     playback/              NowPlaying, LiveView, PlayDialog, TargetFields
     playlist/              PlaylistDrawer
-  util/                    plain functions: time (date-fns), targets, record filters, browser storage
+    icd/                   IcdsCard (upload, list, download, delete ICDs)
+    timefix/               MessageTimeFixCard (one message's field tree with base / fix / kind)
+  util/                    plain functions: time (date-fns), targets, record filters, browser storage,
+                           timefix (editing a time-fix profile draft)
   i18n/                    i18next setup plus en.ts and he.ts (Hebrew must have every English key, or it does not compile)
 
+docs/                             icd-json-format.md (ICD format), time-fix.md (time kinds and formulas),
+                                  time-fix-plan.md (design of time fixing)
 config/application.example.yml    template for your configuration (S3 address and secrets)
 tools/gen_samples.py              generates test captures with known expected output
 tools/gen_demo.py                 writes three plain demo captures (TCP server, TCP client, UDP) to try by hand
@@ -513,6 +545,8 @@ Dockerfile, docker-compose.yml
   dictionaries.
 - **A storage backend**: implement `persistence/BlobStore`.
 - **A link type**: one case in `pcapProcessing/decode/LinkDecoder`.
+- **An ICD**: write it in JSON ([format](docs/icd-json-format.md)), or as annotated Java classes in
+  `icd/versions/<version>/` with the holder class listed in `icd/loading/BuiltInIcds`.
 - **An endpoint**: add a method to the right service, a route in the matching `web/routes/*Routes` class, and a
   function in `frontend/src/api/client.ts`.
 
@@ -581,6 +615,34 @@ Receive-side artifacts are handled:
 - A replay runs to the end of the selected range, then reports "completed".
 - **Playlists** run items in order with a pause after each. While one item plays, the next is
   prepared in the background. A failed item is recorded in history and the playlist continues.
+- **Time fixing** (categories with an ICD and a time-fix profile; see [docs/time-fix.md](docs/time-fix.md)):
+  - While a record is prepared, its messages are decoded and a patch plan is built. The plan is
+    cached, so replaying the record again does not decode again.
+  - Right before a message's first packet is sent, its time fields get the real send time, written
+    into copies of its packets. The cached script is never modified.
+  - Packets without time fields are sent as they are, and records without a profile take the
+    unchanged code path.
+  - After a jump into the middle of a message, the message is patched at its first remaining packet.
+
+### Decoding messages (ICD)
+
+A category can have an ICD (see [docs/icd-json-format.md](docs/icd-json-format.md)). Its records can
+then be cut into messages and decoded:
+
+- The decoder reads the record's **replay script**: the same bytes playback sends, with IP fragments
+  and TCP segments already reassembled. Each `Send` step remembers its recorded flow (a TCP
+  connection, or a UDP source/destination pair).
+- Per flow, the bytes are cut into messages using the header's opcode and length. A message may span
+  several packets, and one packet may hold several messages. Each decoded message keeps its field
+  values and, for every field, the packets and offsets its bytes came from.
+- Problems never stop anything. The bytes involved are passed through untouched, counted, and logged
+  at most once per 10 s per kind:
+  - an unknown opcode: skipped by its length
+  - an impossible length: resync at the next packet
+  - a message cut by a capture gap or the end of the record
+  - a message that does not match its definition
+- `GET /api/records/{id}/decode` shows the result, to check an ICD against real traffic. Add
+  `?icd=<id>` to try an ICD before assigning it to the category.
 
 ### Storage layout (one bucket)
 
@@ -588,7 +650,9 @@ Receive-side artifacts are handled:
 pcaps/{fileId}.pcap|pcapng   capture, stored once per SHA-256
 pcaps/{fileId}.json          name, size, format, uploader, scan summary (with timeline)
 records/{recordId}.json      name, description, category, tags, ports, IP filter, range, stats
-categories/{id}.json         name and connection mode
+categories/{id}.json         name, connection mode and ICD id
+icds/{icdId}.json            an uploaded ICD, exactly as uploaded
+timefix/{categoryId}.json    the category's time-fix profile
 playlists/{id}.json          saved playlist: name and items (record, target, pause)
 tags.json                    all tags
 history.json                 the last runs, newest first
@@ -617,6 +681,11 @@ REST under `/api` (JSON). Times are epoch microseconds. Errors are
 | `PUT` / `DELETE /api/records/{id}`, `GET /api/records/{id}/download` | edit (name, description, times, `categoryId` with the same mode or `422 CATEGORY_MODE_MISMATCH`, `tagIds`), delete, download the capture |
 | `POST` / `PUT` / `DELETE /api/categories[/{id}]`, `GET /api/categories/{id}/usage` | categories; `DELETE ?moveTo={id}` moves the records to a category with the same mode instead of deleting them |
 | `POST` / `PUT` / `DELETE /api/tags[/{id}]`, `POST /api/tags/{id}/merge` | tags; merge replaces the tag with `{intoId}` on every record, then deletes it |
+| `GET /api/icds`, `GET /api/icds/{id}/tree`, `GET /api/icds/{id}/json` | ICDs (Java and uploaded), one ICD's structure, an uploaded ICD's file |
+| `POST /api/icds` (body: the ICD JSON file, `content-type: application/json`), `DELETE /api/icds/{id}` | upload or replace an ICD (`422 ICD_INVALID` lists every problem with its JSON path); delete one no category uses |
+| `PUT /api/categories/{id}/icd` | `{icdId}` (null to clear): the ICD the category's messages follow |
+| `GET` / `PUT /api/categories/{id}/timefix` | the category's time-fix profile with its ICD tree and warnings / save `{messages: [{opcode, base: {path, kind}, fields: [...]}]}` |
+| `GET /api/records/{id}/decode?limit=&opcode=&icd=` | debug: the record decoded with its category's ICD (or `icd`): counts per opcode, decode problems, the first `limit` messages (default 100) with fields and byte locations |
 | `POST` / `PUT` / `DELETE /api/playlists[/{id}]` | saved playlists |
 | `GET /api/history` | recent runs |
 | `GET` / `POST /api/sessions` | running replays / start one (a single replay or a playlist; optional `playlistName` is recorded in History) |

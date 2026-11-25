@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcap-player/icd.schema.json",
+  "title": "PCAP Player ICD",
+  "description": "One version of an interface control document. See docs/icd-json-format.md.",
+  "type": "object",
+  "required": ["id", "name", "header", "messages"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,100}$", "description": "Stable identifier used by categories and time-fix profiles." },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "byteOrder": { "$ref": "#/$defs/byteOrder", "description": "Default for every field. Default BIG_ENDIAN." },
+    "header": { "$ref": "#/$defs/header" },
+    "enums": {
+      "type": "object",
+      "description": "Enums by name, referenced by fields with \"enum\": \"<name>\".",
+      "additionalProperties": { "$ref": "#/$defs/enum" }
+    },
+    "structs": {
+      "type": "object",
+      "description": "Nested structs by name, referenced by fields with \"struct\": \"<name>\".",
+      "additionalProperties": { "$ref": "#/$defs/struct" }
+    },
+    "messages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/message" } }
+  },
+  "$defs": {
+    "byteOrder": { "enum": ["BIG_ENDIAN", "LITTLE_ENDIAN"] },
+    "primitiveType": {
+      "enum": ["INT8", "UINT8", "INT16", "UINT16", "INT32", "UINT32", "INT64", "UINT64", "FLOAT32", "FLOAT64", "BOOL"]
+    },
+    "integerType": { "enum": ["INT8", "UINT8", "INT16", "UINT16", "INT32", "UINT32", "INT64", "UINT64"] },
+    "integerValue": {
+      "description": "A JSON integer, or a string with a decimal or 0x-hex integer.",
+      "oneOf": [
+        { "type": "integer" },
+        { "type": "string", "pattern": "^-?(0[xX][0-9a-fA-F]+|[0-9]+)$" }
+      ]
+    },
+    "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+    "header": {
+      "type": "object",
+      "required": ["fields"],
+      "additionalProperties": false,
+      "properties": {
+        "lengthIncludesHeader": { "type": "boolean", "default": true },
+        "lengthUnit": { "enum": ["BYTES", "WORDS16", "WORDS32"], "default": "BYTES" },
+        "maxMessageBytes": { "type": "integer", "minimum": 1, "default": 65535 },
+        "fields": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/field" } }
+      }
+    },
+    "message": {
+      "type": "object",
+      "required": ["opcode", "name", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "opcode": { "$ref": "#/$defs/integerValue" },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "byteOrder": { "$ref": "#/$defs/byteOrder" },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } }
+      }
+    },
+    "struct": {
+      "type": "object",
+      "required": ["fields"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "fields": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/field" } }
+      }
+    },
+    "enum": {
+      "type": "object",
+      "required": ["type", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "type": { "$ref": "#/$defs/integerType" },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^-?(0[xX][0-9a-fA-F]+|[0-9]+)$" },
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "order": { "type": "integer", "description": "Position in the struct. Default: the position in the list (1-based)." },
+        "description": { "type": "string" },
+        "byteOrder": { "$ref": "#/$defs/byteOrder" },
+        "role": { "enum": ["opcode", "length"], "description": "Header fields only." },
+        "array": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "length": { "type": "integer", "minimum": 1 },
+            "lengthField": { "type": "string", "minLength": 1 }
+          },
+          "oneOf": [ { "required": ["length"] }, { "required": ["lengthField"] } ]
+        },
+        "type": { "$ref": "#/$defs/primitiveType" },
+        "enum": { "type": "string" },
+        "struct": { "type": "string" },
+        "string": {
+          "type": "object",
+          "required": ["length"],
+          "additionalProperties": false,
+          "properties": {
+            "length": { "type": "integer", "minimum": 1 },
+            "encoding": { "type": "string", "default": "US-ASCII" }
+          }
+        },
+        "bitfield": {
+          "type": "object",
+          "required": ["type", "bits"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "$ref": "#/$defs/integerType" },
+            "bitOrder": { "enum": ["MSB_FIRST", "LSB_FIRST"], "default": "MSB_FIRST" },
+            "bits": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["name", "bits"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "$ref": "#/$defs/name" },
+                  "bits": { "type": "integer", "minimum": 1 },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "padding": { "type": "integer", "minimum": 1, "description": "Number of reserved bytes." }
+      },
+      "oneOf": [
+        { "required": ["type"] },
+        { "required": ["enum"] },
+        { "required": ["struct"] },
+        { "required": ["string"] },
+        { "required": ["bitfield"] },
+        { "required": ["padding"] }
+      ]
+    }
+  }
+}

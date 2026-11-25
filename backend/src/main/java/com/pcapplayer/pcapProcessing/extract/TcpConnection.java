@@ -33,6 +33,9 @@ final class TcpConnection {
     long rstTs = -1;
     long lastTs;
 
+    /** Index of this connection's flow in the script; set when the script is built. */
+    int flowId = -1;
+
     TcpConnection(FlowKey key, long startTs, long gapTimeoutNanos) {
         this.key = key;
         this.startTs = startTs;

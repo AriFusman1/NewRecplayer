@@ -10,7 +10,8 @@ public interface ScriptSource {
     record RecordInfo(String recordId, String name, String categoryName, EConnectionMode mode) {
     }
 
-    record Prepared(RecordInfo info, long rangeStartUs, ReplayScript script, Histogram histogram) {
+    /** @param timeFix the time fields to rewrite while playing; null to send the bytes as recorded */
+    record Prepared(RecordInfo info, long rangeStartUs, ReplayScript script, Histogram histogram, TimeFix timeFix) {
     }
 
     /** @throws ReplayFailure RECORD_NOT_FOUND */

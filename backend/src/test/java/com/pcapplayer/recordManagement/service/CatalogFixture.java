@@ -1,5 +1,6 @@
 package com.pcapplayer.recordManagement.service;
 
+import com.pcapplayer.icd.loading.IcdRegistry;
 import com.pcapplayer.pcapProcessing.extract.CachingExtractor;
 import com.pcapplayer.pcapProcessing.extract.ExtractionSettings;
 import com.pcapplayer.pcapProcessing.script.EConnectionMode;
@@ -16,6 +17,7 @@ import com.pcapplayer.uploadHandling.UploadService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,8 +41,10 @@ final class CatalogFixture {
         FileCache cache = new FileCache(store, dir.resolve("cache"), 1_000_000);
         UploadService uploads = new UploadService(dir.resolve("uploads"),
                 new CaptureScanner(ExtractionSettings.defaults()), 60_000);
-        catalog = new CatalogService(repo, uploads, cache, new CachingExtractor(new FixedScriptParser(3), 0), 10, () -> {
-        });
+        // no ICDs: these tests are about categories, tags and records, not time fixing
+        catalog = new CatalogService(repo, uploads, cache, new CachingExtractor(new FixedScriptParser(3), 0), new IcdRegistry(), 10,
+                Clock.systemUTC(), () -> {
+                });
         file = storeFile(dir);
     }
 

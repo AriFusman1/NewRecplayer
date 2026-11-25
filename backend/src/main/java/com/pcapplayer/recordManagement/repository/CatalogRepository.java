@@ -2,6 +2,7 @@ package com.pcapplayer.recordManagement.repository;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.pcapplayer.common.Json;
+import com.pcapplayer.icd.profile.TimeFixProfile;
 import com.pcapplayer.persistence.BlobStore;
 import com.pcapplayer.playback.model.HistoryEntry;
 import com.pcapplayer.recordManagement.model.Category;
@@ -34,6 +35,8 @@ import java.util.logging.Logger;
  * records/{recordId}.json      {@link Record}
  * categories/{id}.json         {@link Category}
  * playlists/{id}.json          {@link SavedPlaylist}
+ * icds/{icdId}.json            an uploaded ICD, exactly as uploaded (JSON ICD format)
+ * timefix/{categoryId}.json    {@link TimeFixProfile} of a category
  * tags.json                    [{@link Tag}]
  * history.json                 [{@link HistoryEntry}] newest first
  * </pre>
@@ -48,6 +51,8 @@ public class CatalogRepository {
     private static final String PCAPS = "pcaps/";
     private static final String RECORDS = "records/";
     private static final String PLAYLISTS = "playlists/";
+    private static final String ICDS = "icds/";
+    private static final String TIMEFIX = "timefix/";
     private static final int LOAD_THREADS = 16;
 
     private final BlobStore store;
@@ -57,6 +62,8 @@ public class CatalogRepository {
     private final Map<String, PcapFile> files = new LinkedHashMap<>();
     private final List<Tag> tags = new ArrayList<>();
     private final Map<String, SavedPlaylist> playlists = new LinkedHashMap<>();
+    private final Map<String, byte[]> icdJson = new LinkedHashMap<>();
+    private final Map<String, TimeFixProfile> profiles = new LinkedHashMap<>();
     private final List<HistoryEntry> history = new ArrayList<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -114,10 +121,14 @@ public class CatalogRepository {
             tags.clear();
             history.clear();
             playlists.clear();
+            icdJson.clear();
+            profiles.clear();
             loadAll(CATEGORIES, Category.class, Category::id, categories);
             loadAll(PCAPS, PcapFile.class, PcapFile::id, files);
             loadAll(RECORDS, Record.class, Record::id, records);
             loadAll(PLAYLISTS, SavedPlaylist.class, SavedPlaylist::id, playlists);
+            loadAll(TIMEFIX, TimeFixProfile.class, TimeFixProfile::categoryId, profiles);
+            loadRaw(ICDS, icdJson);
             byte[] tagsJson = store.get("tags.json");
 
             if (tagsJson != null) tags.addAll(Json.MAPPER.readValue(tagsJson, new TypeReference<List<Tag>>() {
@@ -127,7 +138,8 @@ public class CatalogRepository {
             if (historyJson != null) history.addAll(Json.MAPPER.readValue(historyJson, new TypeReference<List<HistoryEntry>>() {
             }));
             LOG.info("Loaded " + categories.size() + " categories, " + records.size() + " records, "
-                    + files.size() + " files, " + tags.size() + " tags, " + playlists.size() + " playlists, " + history.size() + " history entries");
+                    + files.size() + " files, " + tags.size() + " tags, " + playlists.size() + " playlists, " + history.size() + " history entries, "
+                    + icdJson.size() + " ICDs, " + profiles.size() + " time-fix profiles");
         });
     }
 
@@ -150,6 +162,16 @@ public class CatalogRepository {
             }
         } finally {
             pool.shutdownNow();
+        }
+    }
+
+    /** Reads every {@code <prefix><id>.json} object as raw bytes, keyed by id. */
+    private void loadRaw(String prefix, Map<String, byte[]> into) throws IOException {
+        for (String key : store.list(prefix)) {
+            if (!key.endsWith(".json")) continue;
+            String id = key.substring(key.lastIndexOf('/') + 1, key.length() - ".json".length());
+            byte[] bytes = store.get(key);
+            if (bytes != null) into.put(id, bytes);
         }
     }
 
@@ -215,6 +237,19 @@ public class CatalogRepository {
         return read(() -> new ArrayList<>(history));
     }
 
+    /** The uploaded ICD files by id (the arrays are not copied: treat them as read-only). */
+    public Map<String, byte[]> icdJson() {
+        return read(() -> new LinkedHashMap<>(icdJson));
+    }
+
+    public byte[] icdJson(String id) {
+        return read(() -> icdJson.get(id));
+    }
+
+    public TimeFixProfile profile(String categoryId) {
+        return read(() -> profiles.get(categoryId));
+    }
+
     // ---------------------------------------------------------------- writes
 
     public void putCategory(Category category) throws IOException {
@@ -275,6 +310,34 @@ public class CatalogRepository {
         write(() -> {
             store.delete(key(PLAYLISTS, id));
             playlists.remove(id);
+        });
+    }
+
+    public void putIcdJson(String id, byte[] json) throws IOException {
+        write(() -> {
+            store.put(key(ICDS, id), json, JSON);
+            icdJson.put(id, json);
+        });
+    }
+
+    public void deleteIcdJson(String id) throws IOException {
+        write(() -> {
+            store.delete(key(ICDS, id));
+            icdJson.remove(id);
+        });
+    }
+
+    public void putProfile(TimeFixProfile profile) throws IOException {
+        write(() -> {
+            store.put(key(TIMEFIX, profile.categoryId()), Json.bytes(profile), JSON);
+            profiles.put(profile.categoryId(), profile);
+        });
+    }
+
+    /** Deletes a category's profile, if it has one. */
+    public void deleteProfile(String categoryId) throws IOException {
+        write(() -> {
+            if (profiles.remove(categoryId) != null) store.delete(key(TIMEFIX, categoryId));
         });
     }
 

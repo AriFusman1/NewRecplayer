@@ -10,6 +10,7 @@ import com.pcapplayer.playback.transport.Transport;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -36,9 +37,28 @@ public class ReplayEngine {
      * @param groupConnectTimeoutMs how long a group waits for its TCP clients to connect
      * @param tcpKeepTrying         TCP-server replays play without a connection and keep retrying it
      * @param tcpRetryIntervalMs    the retry interval
+     * @param clock                 wall-clock time for time fixing (UTC); injectable for tests
      */
     public record Settings(int connectTimeoutMs, int maxActiveReplays, long groupConnectTimeoutMs, boolean tcpKeepTrying,
-                           long tcpRetryIntervalMs) {
+                           long tcpRetryIntervalMs, Clock clock) {
+
+        private static final int DEFAULT_MAX_ACTIVE_REPLAYS = 10;
+        private static final long DEFAULT_GROUP_CONNECT_TIMEOUT_MS = 300_000;
+        private static final long DEFAULT_TCP_RETRY_INTERVAL_MS = 1_000;
+
+        public Settings(int connectTimeoutMs, int maxActiveReplays, long groupConnectTimeoutMs, boolean tcpKeepTrying,
+                        long tcpRetryIntervalMs) {
+            this(connectTimeoutMs, maxActiveReplays, groupConnectTimeoutMs, tcpKeepTrying, tcpRetryIntervalMs, Clock.systemUTC());
+        }
+
+        /** Default limits, strict TCP (no keep-trying): for tests that only care about the clock. */
+        public Settings(int connectTimeoutMs, Clock clock) {
+            this(connectTimeoutMs, DEFAULT_MAX_ACTIVE_REPLAYS, DEFAULT_GROUP_CONNECT_TIMEOUT_MS, false, DEFAULT_TCP_RETRY_INTERVAL_MS, clock);
+        }
+
+        public Settings(int connectTimeoutMs) {
+            this(connectTimeoutMs, Clock.systemUTC());
+        }
     }
 
     private static final int PREFETCH_THREADS = 2;

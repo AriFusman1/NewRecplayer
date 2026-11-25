@@ -51,7 +51,7 @@ final class ReplayTestKit {
             List<ScriptStep> steps = List.of(new ScriptStep.Send(0, new byte[]{1}),
                     new ScriptStep.Send(100 * MS, new byte[]{2}), new ScriptStep.Send(200 * MS, new byte[]{3}));
             ReplayScript script = new ReplayScript(describe(recordId).mode(), steps, 3, 3, 250 * MS);
-            return new Prepared(describe(recordId), 0, script, Histogram.of(script, 10));
+            return new Prepared(describe(recordId), 0, script, Histogram.of(script, 10), null); // no time fix
         }
     }
 

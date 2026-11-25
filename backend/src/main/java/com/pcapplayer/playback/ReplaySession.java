@@ -4,6 +4,7 @@ import com.pcapplayer.pcapProcessing.script.EConnectionMode;
 import com.pcapplayer.playback.model.HistoryEntry;
 import com.pcapplayer.playback.model.ScriptSource;
 import com.pcapplayer.playback.model.SessionView;
+import com.pcapplayer.playback.model.TimeFix;
 import com.pcapplayer.playback.transport.TcpConnectTransport;
 import com.pcapplayer.playback.transport.TcpKeepTryingTransport;
 import com.pcapplayer.playback.transport.TcpListenTransport;
@@ -318,12 +319,18 @@ public class ReplaySession implements Runnable {
             prefetchNext(index);
             ItemProgress itemProgress = new ItemProgress(loaded.script().durationNanos(), loaded.script().messageCount());
             progress.set(itemProgress);
+            // ready before a group's start signal: nothing slow may happen between the start and the first send
+            TimeFixer timeFixer = timeFixerFor(loaded);
             boolean connected = index == 0 && group != null && waitForGroupStart(transport, itemControl);
 
             ItemPlayer.play(loaded.script(), transport, itemControl, itemProgress, newState -> {
                 state.set(newState);
                 engine.changed();
-            }, this::log, connected);
+            }, this::log, timeFixer, connected);
+
+            if (timeFixer != null && timeFixer.stats().clampedValues() > 0) {
+                log("warning", "LOG_TIMEFIX_CLAMPED", Map.of("count", timeFixer.stats().clampedValues()));
+            }
             return Outcome.COMPLETED;
         } catch (RuntimeException e) {
             return outcomeOf(e, itemControl);
@@ -391,6 +398,15 @@ public class ReplaySession implements Runnable {
     void failFromGroup(ReplayFailure failure) {
         groupAbort.set(failure);
         control.get().fail(failure);
+    }
+
+    /** A time fixer if the record has time fields to fix, else null (the bytes are sent as recorded). */
+    private TimeFixer timeFixerFor(ScriptSource.Prepared loaded) {
+        TimeFix timeFix = loaded.timeFix();
+        if (timeFix == null || timeFix.plan().empty()) return null;
+
+        log("info", "LOG_TIMEFIX_ON", Map.of("icd", timeFix.icdId(), "messages", timeFix.plan().messageCount()));
+        return new TimeFixer(timeFix.plan(), loaded.script().steps(), engine.settings().clock());
     }
 
     /** Starts preparing the item after {@code index}, if any, while this one plays. */

@@ -29,7 +29,7 @@ class ItemPlayerSeekTest {
     private static CompletableFuture<Void> start(ReplayScript script, FakeTransport transport, Control control, ItemProgress progress) {
         return CompletableFuture.runAsync(() -> {
             control.bind(Thread.currentThread());
-            ItemPlayer.play(script, transport, control, progress, state -> { }, (lvl, code, params) -> { });
+            ItemPlayer.play(script, transport, control, progress, state -> { }, (lvl, code, params) -> { }, null);
         });
     }
 
