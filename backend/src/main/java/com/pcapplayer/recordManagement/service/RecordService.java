@@ -2,6 +2,7 @@ package com.pcapplayer.recordManagement.service;
 
 import com.pcapplayer.common.Strings;
 import com.pcapplayer.errorHandling.ApiException;
+import com.pcapplayer.icd.loading.JsonIcdLoader;
 import com.pcapplayer.pcapProcessing.decode.Ipv4Packet;
 import com.pcapplayer.pcapProcessing.diagnostics.Warning;
 import com.pcapplayer.pcapProcessing.extract.CachingExtractor;
@@ -271,6 +272,22 @@ public class RecordService {
     }
 
     // ------------------------------------------------------------------ auto-tagging
+
+    /**
+     * Ids of the records that match every given filter (each optional): category, a matched rule, and
+     * "at least {@code minCount} messages of type {@code opcode}" (minCount defaults to 1).
+     */
+    public List<String> searchTagged(String categoryId, String rule, String opcode, Long minCount) {
+        Long opcodeFilter = null;
+
+        if (!Strings.isBlank(opcode)) {
+            opcodeFilter = JsonIcdLoader.parseNumber(opcode.trim());
+            if (opcodeFilter == null) throw ApiException.badRequest("INVALID_OPCODE", "opcode must be a number (decimal or 0x hex)");
+        }
+        long min = minCount == null ? 1 : Math.max(1, minCount);
+        return repo.taggedRecords(Strings.blankToNull(categoryId), Strings.blankToNull(rule), opcodeFilter, min).stream()
+                .map(Record::id).toList();
+    }
 
     /**
      * Saves a capture that auto-tagging matched.

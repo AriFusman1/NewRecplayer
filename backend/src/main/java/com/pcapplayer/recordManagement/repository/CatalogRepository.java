@@ -17,9 +17,11 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -72,6 +74,7 @@ public class CatalogRepository {
     private final Map<String, TimeFixProfile> profiles = new LinkedHashMap<>();
     private final Map<String, CategoryTagRules> tagRules = new LinkedHashMap<>();
     private final Map<String, TagJob> tagJobs = new LinkedHashMap<>();
+    private final TaggingIndex taggingIndex = new TaggingIndex();
     private final List<HistoryEntry> history = new ArrayList<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -136,6 +139,8 @@ public class CatalogRepository {
             loadAll(CATEGORIES, Category.class, Category::id, categories);
             loadAll(PCAPS, PcapFile.class, PcapFile::id, files);
             loadAll(RECORDS, Record.class, Record::id, records);
+            taggingIndex.clear();
+            records.values().forEach(taggingIndex::add);
             loadAll(PLAYLISTS, SavedPlaylist.class, SavedPlaylist::id, playlists);
             loadAll(TIMEFIX, TimeFixProfile.class, TimeFixProfile::categoryId, profiles);
             loadAll(TAGRULES, CategoryTagRules.class, CategoryTagRules::categoryId, tagRules);
@@ -267,6 +272,31 @@ public class CatalogRepository {
         return read(() -> tagRules.get(categoryId));
     }
 
+    /**
+     * Records filtered by their auto-tagging statistics, answered from an index. Every filter is
+     * optional (null); the ones given must all hold.
+     *
+     * @param rule     matched this rule (ignoring case)
+     * @param opcode   has at least {@code minCount} messages of this type
+     */
+    public List<Record> taggedRecords(String categoryId, String rule, Long opcode, long minCount) {
+        return read(() -> {
+            Set<String> ids = null;
+            if (rule != null) ids = new HashSet<>(taggingIndex.withRule(rule));
+
+            if (opcode != null) {
+                Set<String> withCount = taggingIndex.withCount(opcode, minCount);
+                if (ids == null) ids = withCount;
+                else ids.retainAll(withCount);
+            }
+            Set<String> selected = ids;
+            return records.values().stream()
+                    .filter(record -> selected == null || selected.contains(record.id()))
+                    .filter(record -> categoryId == null || record.categoryId().equals(categoryId))
+                    .toList();
+        });
+    }
+
     public List<TagJob> tagJobs() {
         return read(() -> new ArrayList<>(tagJobs.values()));
     }
@@ -294,14 +324,15 @@ public class CatalogRepository {
     public void putRecord(Record record) throws IOException {
         write(() -> {
             store.put(key(RECORDS, record.id()), Json.bytes(record), JSON);
-            records.put(record.id(), record);
+            taggingIndex.remove(records.put(record.id(), record));
+            taggingIndex.add(record);
         });
     }
 
     public void deleteRecord(String id) throws IOException {
         write(() -> {
             store.delete(key(RECORDS, id));
-            records.remove(id);
+            taggingIndex.remove(records.remove(id));
         });
     }
 
