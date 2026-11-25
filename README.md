@@ -278,8 +278,11 @@ through to the backend on port 8080.
    - **Select** several records (or all shown), then act on all of them from the bar that appears:
      - **Edit tags…** adds and removes tags on all of them at once.
      - **Play together** (2 or more records) asks for each one's target. After starting, the app
-       switches to the **Now playing** tab. They all start at the same moment; if any target can't
-       be used, none of them start. If some of them are **TCP clients**, nothing plays until every
+       switches to the **Now playing** tab. They all start at the same moment: once every record is
+       ready (loaded, its time fixing prepared, a TCP server's connection made), the group picks one
+       start instant 25 ms ahead and every record takes it as its time zero, so their first messages
+       leave together (measured within about 0.3 ms for 10 records on one machine). If any target
+       can't be used, none of them start. If some of them are **TCP clients**, nothing plays until every
        one of those services has connected ("Waiting for connection: 1/3 TCP clients connected");
        then all of them start together. A client that disconnects before the start is waited for
        again. Stop, a failed record, or the connect timeout (`replay.group-connect-timeout-ms`) ends

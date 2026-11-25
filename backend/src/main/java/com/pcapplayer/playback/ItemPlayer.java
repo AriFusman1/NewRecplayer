@@ -52,12 +52,22 @@ public final class ItemPlayer {
      */
     static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
                      Consumer<EItemState> state, Log log, TimeFixer timeFixer, boolean alreadyOpen) {
+        play(script, transport, control, progress, state, log, timeFixer, alreadyOpen, 0);
+    }
+
+    /**
+     * @param startAtNanos time zero as {@link System#nanoTime()}, shared by the records of a group so they
+     *                     start at the same instant; 0 = now
+     */
+    static void play(ReplayScript script, Transport transport, Control control, ItemProgress progress,
+                     Consumer<EItemState> state, Log log, TimeFixer timeFixer, boolean alreadyOpen, long startAtNanos) {
         if (!alreadyOpen) {
             state.accept(transport.waitsForPeer() ? EItemState.WAITING_FOR_CONNECTION : EItemState.CONNECTING);
             transport.open(control);
         }
         control.takeSeek(); // a jump requested before playback started has nothing to apply to
-        long zeroNanos = System.nanoTime();
+        // the first step (offset 0) waits for time zero like any other: a group's members all leave at its start instant
+        long zeroNanos = startAtNanos > 0 ? startAtNanos : System.nanoTime();
         progress.start(zeroNanos);
         state.accept(EItemState.PLAYING);
         // else logged when it connected; a keep-trying transport logs its own connects

@@ -321,12 +321,13 @@ public class ReplaySession implements Runnable {
             progress.set(itemProgress);
             // ready before a group's start signal: nothing slow may happen between the start and the first send
             TimeFixer timeFixer = timeFixerFor(loaded);
-            boolean connected = index == 0 && group != null && waitForGroupStart(transport, itemControl);
+            boolean inGroup = index == 0 && group != null;
+            long startAtNanos = inGroup ? waitForGroupStart(transport, itemControl) : 0;
 
             ItemPlayer.play(loaded.script(), transport, itemControl, itemProgress, newState -> {
                 state.set(newState);
                 engine.changed();
-            }, this::log, timeFixer, connected);
+            }, this::log, timeFixer, inGroup, startAtNanos);
 
             if (timeFixer != null && timeFixer.stats().clampedValues() > 0) {
                 log("warning", "LOG_TIMEFIX_CLAMPED", Map.of("count", timeFixer.stats().clampedValues()));
@@ -344,17 +345,21 @@ public class ReplaySession implements Runnable {
     /**
      * The script is loaded: get ready and wait for the group's start signal. A TCP client first
      * waits for its service to connect (and again if it disconnects before the start); any other
-     * member is ready at once.
+     * member opens its transport (a TCP server's connection is made now, not after the start, so its
+     * first message is not late) and is then ready.
      *
-     * @return true if the transport is already connected (a TCP client)
+     * @return the group's start instant ({@link System#nanoTime()}); the transport is open by then
      */
-    private boolean waitForGroupStart(Transport transport, Control itemControl) {
+    private long waitForGroupStart(Transport transport, Control itemControl) {
         TcpListenTransport tcpClient = transport instanceof TcpListenTransport listening ? listening : null;
 
         if (tcpClient != null) {
             tcpClient.failOnDisconnect(false);
             connectForGroup(tcpClient, itemControl);
         } else {
+            setState(EItemState.CONNECTING);
+            transport.open(itemControl); // a strict TCP server that cannot connect fails here, so the group never starts
+            if (transport.isConnected()) log("info", "LOG_CONNECTED", Map.of());
             group.markReady(this);
         }
         setState(EItemState.WAITING_FOR_GROUP);
@@ -378,7 +383,7 @@ public class ReplaySession implements Runnable {
                         "Client disconnected just as the group started");
             }
         }
-        return tcpClient != null;
+        return group.startAtNanos();
     }
 
     /** Waits until the service connects to our listening port, then counts this member as ready. */
