@@ -5,6 +5,7 @@ import com.pcapplayer.pcapProcessing.script.EConnectionMode;
 import com.pcapplayer.recordManagement.model.Category;
 import com.pcapplayer.recordManagement.model.Tag;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,7 +59,7 @@ public class TaxonomyService {
     }
 
     /**
-     * Deletes the category and its time-fix profile. Its records move to {@code moveToId} (a category
+     * Deletes the category, its time-fix profile and its auto-tagging rules. Its records move to {@code moveToId} (a category
      * with the same mode, whose own profile then applies to them), or, when that is null, are deleted
      * together with any pcap files no longer used. Tags are global and stay.
      */
@@ -76,6 +77,7 @@ public class TaxonomyService {
 
             writeToStorage(() -> {
                 catalog.repo.deleteProfile(id);
+                catalog.repo.deleteTagRules(id);
                 catalog.repo.deleteCategory(id);
             });
         });
@@ -99,6 +101,32 @@ public class TaxonomyService {
             all.add(tag);
             writeToStorage(() -> catalog.repo.saveTags(all));
             return tag;
+        });
+    }
+
+    /**
+     * The ids of the tags with these names, creating the missing ones (names compared ignoring case).
+     * Auto-tagging puts the names of the matched rules on records this way.
+     */
+    public List<String> ensureTags(List<String> names) {
+        return catalog.mutate(() -> {
+            List<Tag> all = catalog.repo.tags();
+            List<String> ids = new ArrayList<>();
+            boolean added = false;
+
+            for (String name : names) {
+                String trimmedName = requireName(name);
+                Tag tag = all.stream().filter(existing -> existing.name().equalsIgnoreCase(trimmedName)).findFirst().orElse(null);
+
+                if (tag == null) {
+                    tag = new Tag(UUID.randomUUID().toString(), trimmedName);
+                    all.add(tag);
+                    added = true;
+                }
+                if (!ids.contains(tag.id())) ids.add(tag.id());
+            }
+            if (added) writeToStorage(() -> catalog.repo.saveTags(all));
+            return ids;
         });
     }
 

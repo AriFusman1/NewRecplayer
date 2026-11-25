@@ -1,5 +1,7 @@
 package com.pcapplayer.web;
 
+import com.pcapplayer.autotag.archive.ArchiveService;
+import com.pcapplayer.autotag.job.TagJobService;
 import com.pcapplayer.errorHandling.ApiException;
 import com.pcapplayer.persistence.BlobStore;
 import com.pcapplayer.persistence.FileCache;
@@ -7,6 +9,7 @@ import com.pcapplayer.playback.ReplayEngine;
 import com.pcapplayer.recordManagement.service.CatalogService;
 import com.pcapplayer.uploadHandling.UploadService;
 import com.pcapplayer.web.live.LiveHub;
+import com.pcapplayer.web.routes.AutoTagRoutes;
 import com.pcapplayer.web.routes.CatalogRoutes;
 import com.pcapplayer.web.routes.HealthRoutes;
 import com.pcapplayer.web.routes.IcdRoutes;
@@ -31,7 +34,8 @@ public class ApiServer {
     private static final long JSON_BODY_LIMIT = 16L * 1024 * 1024;
 
     public record Services(CatalogService catalog, UploadService uploads, FileCache cache,
-                           ReplayEngine engine, LiveHub hub, BlobStore store, BooleanSupplier ready) {
+                           ReplayEngine engine, LiveHub hub, BlobStore store, BooleanSupplier ready,
+                           TagJobService tagJobs, ArchiveService archive) {
     }
 
     private ApiServer() {
@@ -44,6 +48,7 @@ public class ApiServer {
         HealthRoutes.mount(router, http, services.store(), services.ready());
         // Uploads stream their raw body to disk, so they are mounted before the JSON body handler.
         UploadRoutes.mount(router, http, services.uploads(), services.catalog().records());
+        AutoTagRoutes.mountUploads(router, http, services.tagJobs());
         router.route("/api/*").handler(BodyHandler.create(false).setBodyLimit(JSON_BODY_LIMIT));
 
         router.route("/api/*").handler(context -> {
@@ -52,6 +57,7 @@ public class ApiServer {
         });
         CatalogRoutes.mount(router, http, services.catalog(), services.cache());
         IcdRoutes.mount(router, http, services.catalog().icds(), services.catalog().timeFix());
+        AutoTagRoutes.mount(router, http, services.catalog().tagRules(), services.tagJobs(), services.archive());
         ReplayRoutes.mount(router, http, services.engine());
         router.route("/api/*").handler(context -> Http.json(context, Http.NOT_FOUND, Map.of("code", "NOT_FOUND", "message", "No such endpoint")));
 

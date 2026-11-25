@@ -60,3 +60,26 @@ history:
 
 histogram:
   max-bins: 120
+
+# The organization's archive of recordings, used as a source for auto-tagging. A different S3 from
+# s3: above. READ-ONLY: nothing is ever written to it or deleted from it. Empty bucket = not used.
+archive-s3:
+  endpoint: ""
+  region: us-east-1
+  bucket: ""
+  # Empty keys = AWS default credential chain
+  access-key: ""
+  secret-key: ""
+  path-style: false
+  # the archive browser starts here and cannot go above it, e.g. "recordings/"
+  root-prefix: ""
+
+auto-tag:
+  # a run over more files than this is refused before it starts (about 10 MB per pcap: 5 GB)
+  max-files-per-run: 500
+  # files processed in parallel within one job (each holds one decompressed file on disk)
+  workers: 4
+  # jobs running at once; others wait in a queue
+  max-concurrent-jobs: 1
+  # two floats are "equal" in a rule when they differ by at most this much
+  float-tolerance: 0.000001

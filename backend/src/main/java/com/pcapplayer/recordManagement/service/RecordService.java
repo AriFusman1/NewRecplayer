@@ -2,6 +2,7 @@ package com.pcapplayer.recordManagement.service;
 
 import com.pcapplayer.common.Strings;
 import com.pcapplayer.errorHandling.ApiException;
+import com.pcapplayer.icd.loading.JsonIcdLoader;
 import com.pcapplayer.pcapProcessing.decode.Ipv4Packet;
 import com.pcapplayer.pcapProcessing.diagnostics.Warning;
 import com.pcapplayer.pcapProcessing.extract.CachingExtractor;
@@ -16,10 +17,12 @@ import com.pcapplayer.recordManagement.model.PcapFile;
 import com.pcapplayer.recordManagement.model.Record;
 import com.pcapplayer.recordManagement.model.RecordStats;
 import com.pcapplayer.recordManagement.model.Tag;
+import com.pcapplayer.recordManagement.model.TaggingStats;
 import com.pcapplayer.recordManagement.repository.CatalogRepository;
 import com.pcapplayer.uploadHandling.UploadService;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -67,6 +70,16 @@ public class RecordService {
      * @param categoryId null = keep; otherwise a category with the record's connection mode
      * @param tagIds     null = keep; unknown ids are dropped
      */
+    /** A capture auto-tagging matched, ready to be saved (see {@link #saveTagged}). */
+    public record TaggedCapture(Path pcap, String name, long size, String sha256, CaptureSummary summary, String categoryId,
+                                List<Integer> ports, long startUs, long endUs, String description, List<String> tagIds,
+                                TaggingStats tagging, String createdBy) {
+    }
+
+    /** @param updatedExisting true when existing records got the stats instead of a new record */
+    public record TaggedSave(boolean updatedExisting, List<String> recordIds) {
+    }
+
     public record UpdateRequest(String name, String description, long startUs, long endUs, String categoryId,
                                 List<String> tagIds) {
     }
@@ -226,6 +239,11 @@ public class RecordService {
     // ------------------------------------------------------------------ create / update / delete
 
     public Record create(CreateRequest request) {
+        return create(request, null);
+    }
+
+    /** @param tagging stats from auto-tagging, or null for a record made by hand */
+    private Record create(CreateRequest request, TaggingStats tagging) {
         String name = requireName(request.name());
         Preview preview = preview(request.draft());
         if (!preview.errors().isEmpty()) throw validationFailed(preview.errors());
@@ -247,10 +265,91 @@ public class RecordService {
             Record record = new Record(UUID.randomUUID().toString(), file.id(), uniqueName(name),
                     Strings.trimToEmpty(request.description()), category.id(), tagIds,
                     List.copyOf(new LinkedHashSet<>(request.ports())), Strings.blankToNull(request.ip()), range.startUs(), range.endUs(),
-                    preview.stats(), request.createdBy(), now, now);
+                    preview.stats(), request.createdBy(), now, now, tagging);
             put(record);
             return record;
         });
+    }
+
+    // ------------------------------------------------------------------ auto-tagging
+
+    /**
+     * Ids of the records that match every given filter (each optional): category, a matched rule, and
+     * "at least {@code minCount} messages of type {@code opcode}" (minCount defaults to 1).
+     */
+    public List<String> searchTagged(String categoryId, String rule, String opcode, Long minCount) {
+        Long opcodeFilter = null;
+
+        if (!Strings.isBlank(opcode)) {
+            opcodeFilter = JsonIcdLoader.parseNumber(opcode.trim());
+            if (opcodeFilter == null) throw ApiException.badRequest("INVALID_OPCODE", "opcode must be a number (decimal or 0x hex)");
+        }
+        long min = minCount == null ? 1 : Math.max(1, minCount);
+        return repo.taggedRecords(Strings.blankToNull(categoryId), Strings.blankToNull(rule), opcodeFilter, min).stream()
+                .map(Record::id).toList();
+    }
+
+    /**
+     * Saves a capture that auto-tagging matched.
+     * <ul>
+     *   <li>When records of this category already use a stored file with the same SHA-256 (of the
+     *       decompressed content), no record is created: those records get the new statistics and tags.</li>
+     *   <li>Otherwise a record is created through {@link #create} like a normal upload. If the same file is
+     *       stored for another category, the record reuses it (the file is stored once).</li>
+     * </ul>
+     * The capture file is owned by this method afterwards: stored, or deleted.
+     */
+    public TaggedSave saveTagged(TaggedCapture capture) {
+        List<Record> existing = repo.exclusive(() -> {
+            PcapFile file = repo.fileBySha(capture.sha256());
+            if (file == null) return List.<Record>of();
+            return repo.records().stream()
+                    .filter(record -> record.fileId().equals(file.id()) && record.categoryId().equals(capture.categoryId())).toList();
+        });
+
+        if (!existing.isEmpty()) {
+            List<String> ids = catalog.mutate(() -> {
+                List<String> updated = new ArrayList<>();
+
+                for (Record old : existing) {
+                    Record current = repo.record(old.id());
+                    if (current == null) continue; // deleted meanwhile
+                    Set<String> tags = new LinkedHashSet<>(current.tagIds());
+                    tags.addAll(capture.tagIds());
+                    put(current.withTagging(capture.tagging(), List.copyOf(tags)));
+                    updated.add(current.id());
+                }
+                return updated;
+            });
+            deleteQuietly(capture.pcap());
+            return new TaggedSave(true, ids);
+        }
+        UploadService.Upload upload = uploads.registerScanned(capture.pcap(), capture.name(), capture.size(), capture.sha256(),
+                capture.summary(), capture.createdBy());
+
+        try {
+            CreateRequest request = new CreateRequest(upload.id(), null, recordName(capture.name()), capture.description(),
+                    capture.categoryId(), capture.tagIds(), capture.ports(), null, capture.startUs(), capture.endUs(),
+                    capture.createdBy(), "NEW_NAME");
+            return new TaggedSave(false, List.of(create(request, capture.tagging()).id()));
+        } finally {
+            uploads.discard(upload.id()); // nothing to do once stored; deletes the file if saving failed
+        }
+    }
+
+    /** "capture.pcap" → "capture". */
+    private static String recordName(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        String name = dot > 0 ? fileName.substring(0, dot) : fileName;
+        return Strings.isBlank(name) ? "capture" : name;
+    }
+
+    private static void deleteQuietly(Path file) {
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException ignored) {
+            // a temp file
+        }
     }
 
     /** 409 DUPLICATE when the name is taken or the same file is already stored, so the user can choose. */
@@ -306,7 +405,7 @@ public class RecordService {
             List<String> tagIds = request.tagIds() == null ? current.tagIds() : validTags(request.tagIds());
             Record record = new Record(id, current.fileId(), name, Strings.trimToEmpty(request.description()),
                     categoryId, tagIds, current.ports(), current.ip(), range.startUs(), range.endUs(), stats,
-                    current.createdBy(), current.createdAtMs(), System.currentTimeMillis());
+                    current.createdBy(), current.createdAtMs(), System.currentTimeMillis(), current.tagging());
             put(record);
             return record;
         });

@@ -54,6 +54,8 @@ Backend packages under `backend/src/main/java/com/pcapplayer/`:
 | `configuration` | `AppConfig`, `ConfigLoader` (defaults, then config file, then env vars) |
 | `web`, `web/routes`, `web/live` | HTTP server, one `*Routes` class per area, WebSocket `LiveHub` |
 | `pcapProcessing/{capture,decode,flow,summary,extract,script,diagnostics}` | packet pipeline, in that order |
+| `icd/{model,annotations,loading,decode,analysis,timefix,profile,tree,versions}` | ICDs, message decoding, time fixing |
+| `autotag/{rules,archive,job}` | auto tagging: rules and their evaluation, the read-only archive S3, tagging jobs |
 | `recordManagement/{service,model,repository}` | catalog business rules, stored data, `CatalogRepository` |
 | `uploadHandling` | `UploadService` |
 | `playback`, `playback/model`, `playback/transport` | replay engine, its exchange types, sockets |

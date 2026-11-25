@@ -49,7 +49,7 @@ function DropZone({ onFile }: { onFile: (file: File) => void }) {
       <h2>{t('upload.drop')}</h2>
       <span className="muted">{t('upload.or')}</span>
       <button className="btn primary" onClick={() => input.current?.click()}><Icon name="file" />{t('upload.browse')}</button>
-      <input ref={input} type="file" hidden accept=".pcap,.pcapng,.cap,.dmp,application/vnd.tcpdump.pcap"
+      <input ref={input} type="file" hidden accept=".pcap,.pcapng,.cap,.dmp,.gz,application/vnd.tcpdump.pcap,application/gzip"
         onChange={(e) => { const file = e.target.files?.[0]; if (file) onFile(file); e.target.value = ''; }} />
     </div>
   );

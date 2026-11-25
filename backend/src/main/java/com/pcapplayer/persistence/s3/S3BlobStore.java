@@ -2,18 +2,9 @@ package com.pcapplayer.persistence.s3;
 
 import com.pcapplayer.common.Secrets;
 import com.pcapplayer.persistence.BlobStore;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
-import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.core.sync.ResponseTransformer;
-import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -26,7 +17,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -57,20 +47,8 @@ public class S3BlobStore implements BlobStore {
     private final String prefix;
 
     public S3BlobStore(Settings settings) {
-        AwsCredentialsProvider creds = settings.accessKey() == null || settings.accessKey().isBlank()
-                ? DefaultCredentialsProvider.create()
-                : StaticCredentialsProvider.create(AwsBasicCredentials.create(settings.accessKey(), settings.secretKey()));
-        var builder = S3Client.builder()
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
-                .region(Region.of(settings.region() == null || settings.region().isBlank() ? "us-east-1" : settings.region()))
-                .credentialsProvider(creds)
-                // SDK ≥ 2.30 defaults to aws-chunked uploads with flexible checksums, which many
-                // S3-compatible servers (older MinIO, Ceph, …) store verbatim. Only checksum when required.
-                .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
-                .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
-                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(settings.pathStyle()).build());
-        if (settings.endpoint() != null && !settings.endpoint().isBlank()) builder.endpointOverride(URI.create(settings.endpoint()));
-        this.client = builder.build();
+        this.client = S3Clients.build(settings.endpoint(), settings.region(), settings.accessKey(), settings.secretKey(),
+                settings.pathStyle());
         this.bucket = settings.bucket();
         String trimmedPrefix = settings.prefix() == null ? "" : settings.prefix().trim();
         this.prefix = trimmedPrefix.isEmpty() || trimmedPrefix.endsWith("/") ? trimmedPrefix : trimmedPrefix + "/";

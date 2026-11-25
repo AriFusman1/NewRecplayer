@@ -1,7 +1,8 @@
 import type {
   Catalog, CaptureSummary, Category, HistoryEntry, ItemRequest, Mode, PcapRecord, Preview, SavedPlaylist, SavedPlaylistItem,
   Session, Tag, UploadResult, IcdSummary, IcdTree, TimeFixView, TimeFixSaveResult, MessageTimeFix,
-  DecodeReport,
+  DecodeReport, TagRule, TagRulesView, TagJob, TagJobSummary, CreateTagJob, ArchiveFolder, ArchivePreview,
+  AutoTagCapabilities, FileStatus,
 } from './types';
 
 /** An error answer from the backend: `code` is translated by the UI. */
@@ -151,4 +152,45 @@ export const api = {
     if (icd) query.set('icd', icd);
     return call<DecodeReport>('GET', `/api/records/${recordId}/decode?${query}`);
   },
+
+  /** Ids of records filtered by auto-tagging stats: a matched rule and/or "message type ≥ N". */
+  searchRecords: (filter: { categoryId?: string; rule?: string; opcode?: number; minCount?: number }) => {
+    const query = new URLSearchParams();
+    if (filter.categoryId) query.set('categoryId', filter.categoryId);
+    if (filter.rule) query.set('rule', filter.rule);
+    if (filter.opcode !== undefined) query.set('opcode', String(filter.opcode));
+    if (filter.minCount !== undefined) query.set('minCount', String(filter.minCount));
+    return call<string[]>('GET', `/api/records/search?${query}`);
+  },
+
+  tagRules: (categoryId: string) => call<TagRulesView>('GET', `/api/categories/${categoryId}/tag-rules`),
+  createTagRule: (categoryId: string, rule: TagRule) => call<TagRule>('POST', `/api/categories/${categoryId}/tag-rules`, rule),
+  updateTagRule: (categoryId: string, rule: TagRule) =>
+    call<TagRule>('PUT', `/api/categories/${categoryId}/tag-rules/${rule.id}`, rule),
+  deleteTagRule: (categoryId: string, ruleId: string) => call<void>('DELETE', `/api/categories/${categoryId}/tag-rules/${ruleId}`),
+
+  autoTagCapabilities: () => call<AutoTagCapabilities>('GET', '/api/auto-tag/capabilities'),
+  archiveBrowse: (prefix: string) => call<ArchiveFolder>('GET', `/api/archive/browse?${new URLSearchParams({ prefix })}`),
+  /** How many archive files a selection holds (and whether it is over the limit). */
+  archivePreview: (request: CreateTagJob) => call<ArchivePreview>('POST', '/api/archive/preview', request),
+
+  tagJobs: () => call<TagJobSummary[]>('GET', '/api/tag-jobs'),
+  tagJob: (id: string, status?: FileStatus) =>
+    call<TagJob>('GET', `/api/tag-jobs/${id}${status ? `?status=${status}` : ''}`),
+  createTagJob: (request: CreateTagJob) => call<TagJob>('POST', '/api/tag-jobs', request),
+  /** Streams one local file of an UPLOADING job as the raw body. */
+  uploadTagJobFile: async (jobId: string, index: number, file: File): Promise<void> => {
+    let response: Response;
+    try {
+      response = await fetch(`/api/tag-jobs/${jobId}/files/${index}`, { method: 'POST', body: file });
+    } catch {
+      throw new ApiError(0, 'NETWORK', {}, 'Upload failed');
+    }
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new ApiError(response.status, data.code ?? 'UPLOAD_FAILED', data.params ?? {}, data.message ?? 'Upload failed');
+    }
+  },
+  startTagJob: (id: string) => call<TagJob>('POST', `/api/tag-jobs/${id}/start`),
+  cancelTagJob: (id: string) => call<TagJob>('POST', `/api/tag-jobs/${id}/cancel`),
 };

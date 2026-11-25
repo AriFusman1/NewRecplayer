@@ -28,6 +28,7 @@ import java.util.List;
  *   <li>{@link #icds()}: ICDs and which category uses which</li>
  *   <li>{@link #timeFix()}: time-fix profiles</li>
  *   <li>{@link #decoding()}: records decoded with an ICD (debug)</li>
+ *   <li>{@link #tagRules()}: auto-tagging rules per category</li>
  * </ul>
  */
 public class CatalogService {
@@ -48,6 +49,7 @@ public class CatalogService {
     private final RecordDecodeService decoding;
     private final IcdService icds;
     private final TimeFixService timeFix;
+    private final TagRuleService tagRules;
 
     public CatalogService(CatalogRepository repo, UploadService uploads, FileCache cache, CachingExtractor extractor,
                           IcdRegistry builtInIcds, int maxBins, Clock clock, Runnable onChange) {
@@ -58,6 +60,7 @@ public class CatalogService {
         this.playlists = new PlaylistService(support);
         this.icds = new IcdService(support, builtInIcds);
         this.timeFix = new TimeFixService(support, icds, clock);
+        this.tagRules = new TagRuleService(support, icds, clock);
         this.scriptSource = new RecordScriptSource(repo, cache, extractor, maxBins, new TimeFixPlans(icds, timeFix));
         this.decoding = new RecordDecodeService(support, cache, extractor, icds);
     }
@@ -84,6 +87,10 @@ public class CatalogService {
 
     public TimeFixService timeFix() {
         return timeFix;
+    }
+
+    public TagRuleService tagRules() {
+        return tagRules;
     }
 
     public RecordDecodeService decoding() {

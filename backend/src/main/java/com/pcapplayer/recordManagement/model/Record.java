@@ -8,18 +8,25 @@ import java.util.List;
  * @param ip      optional IPv4 filter (same endpoint as the ports), null = all IPs
  * @param startUs range start, epoch µs (inclusive)
  * @param endUs   range end, epoch µs (inclusive)
+ * @param tagging message statistics and matched rules from auto-tagging; null for records made by hand
  */
 public record Record(String id, String fileId, String name, String description, String categoryId,
                      List<String> tagIds, List<Integer> ports, String ip, long startUs, long endUs,
-                     RecordStats stats, String createdBy, long createdAtMs, long updatedAtMs) {
+                     RecordStats stats, String createdBy, long createdAtMs, long updatedAtMs,
+                     TaggingStats tagging) {
 
     public Record withCategory(String newCategoryId) {
         return new Record(id, fileId, name, description, newCategoryId, tagIds, ports, ip, startUs, endUs, stats,
-                createdBy, createdAtMs, System.currentTimeMillis());
+                createdBy, createdAtMs, System.currentTimeMillis(), tagging);
     }
 
     public Record withTags(List<String> tags) {
         return new Record(id, fileId, name, description, categoryId, tags, ports, ip, startUs, endUs, stats,
-                createdBy, createdAtMs, System.currentTimeMillis());
+                createdBy, createdAtMs, System.currentTimeMillis(), tagging);
+    }
+
+    public Record withTagging(TaggingStats newTagging, List<String> tags) {
+        return new Record(id, fileId, name, description, categoryId, tags, ports, ip, startUs, endUs, stats,
+                createdBy, createdAtMs, System.currentTimeMillis(), newTagging);
     }
 }

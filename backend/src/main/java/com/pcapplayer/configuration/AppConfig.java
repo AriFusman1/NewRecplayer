@@ -4,7 +4,8 @@ import com.pcapplayer.common.Secrets;
 
 /** Typed view of application.yml (kebab-case keys). */
 public record AppConfig(Server server, Storage storage, S3 s3, String workDir, Cache cache, Upload upload,
-                        Replay replay, Extraction extraction, History history, HistogramCfg histogram) {
+                        Replay replay, Extraction extraction, History history, HistogramCfg histogram,
+                        ArchiveS3 archiveS3, AutoTag autoTag) {
 
     public record Server(String host, int port) {
     }
@@ -46,5 +47,35 @@ public record AppConfig(Server server, Storage storage, S3 s3, String workDir, C
     }
 
     public record HistogramCfg(int maxBins) {
+    }
+
+    /**
+     * The organization's archive of recordings, a separate S3 from {@link S3}. Only read: the
+     * application never writes to it or deletes from it. An empty bucket turns the archive sources off.
+     *
+     * @param rootPrefix the archive browser cannot go above this prefix
+     */
+    public record ArchiveS3(String endpoint, String region, String bucket, String accessKey, String secretKey,
+                            boolean pathStyle, String rootPrefix) {
+
+        public boolean configured() {
+            return bucket != null && !bucket.isBlank();
+        }
+
+        /** Never prints the secret key. */
+        @Override
+        public String toString() {
+            return "ArchiveS3[endpoint=" + endpoint + ", region=" + region + ", bucket=" + bucket + ", accessKey=" + accessKey
+                    + ", secretKey=" + Secrets.mask(secretKey) + ", pathStyle=" + pathStyle + ", rootPrefix=" + rootPrefix + "]";
+        }
+    }
+
+    /**
+     * @param maxFilesPerRun    a selection above this is refused before the run starts
+     * @param workers           files processed in parallel within one job
+     * @param maxConcurrentJobs jobs running at once; the others wait in a queue
+     * @param floatTolerance    absolute tolerance for float equality in rules
+     */
+    public record AutoTag(int maxFilesPerRun, int workers, int maxConcurrentJobs, double floatTolerance) {
     }
 }

@@ -47,6 +47,9 @@ public final class CatalogRoutes {
                 records.preview(Http.body(context, RecordService.Draft.class))));
         router.post("/api/records").handler(context -> http.blockingCreated(context, () ->
                 records.create(Http.body(context, RecordService.CreateRequest.class))));
+        router.get("/api/records/search").handler(context -> http.blocking(context, () -> records.searchTagged(
+                context.queryParams().get("categoryId"), context.queryParams().get("rule"), context.queryParams().get("opcode"),
+                longParam(context, "minCount"))));
         router.post("/api/records/tags").handler(context -> http.blocking(context, () ->
                 Map.of("updated", records.retag(Http.body(context, RecordService.RetagRequest.class)))));
         router.put("/api/records/:id").handler(context -> http.blocking(context, () ->
@@ -70,6 +73,11 @@ public final class CatalogRoutes {
         } catch (NumberFormatException e) {
             throw ApiException.badRequest("INVALID_PARAM", name + " must be an integer");
         }
+    }
+
+    private static Long longParam(RoutingContext context, String name) {
+        Integer value = intParam(context, name);
+        return value == null ? null : value.longValue();
     }
 
     /** Streams the record's capture file as an attachment named like the original upload. */
