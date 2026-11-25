@@ -1,6 +1,7 @@
 package com.pcapplayer.recordManagement.repository;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.pcapplayer.autotag.rules.CategoryTagRules;
 import com.pcapplayer.common.Json;
 import com.pcapplayer.icd.profile.TimeFixProfile;
 import com.pcapplayer.persistence.BlobStore;
@@ -37,6 +38,7 @@ import java.util.logging.Logger;
  * playlists/{id}.json          {@link SavedPlaylist}
  * icds/{icdId}.json            an uploaded ICD, exactly as uploaded (JSON ICD format)
  * timefix/{categoryId}.json    {@link TimeFixProfile} of a category
+ * tagrules/{categoryId}.json   {@link CategoryTagRules}: the auto-tagging rules of a category
  * tags.json                    [{@link Tag}]
  * history.json                 [{@link HistoryEntry}] newest first
  * </pre>
@@ -53,6 +55,7 @@ public class CatalogRepository {
     private static final String PLAYLISTS = "playlists/";
     private static final String ICDS = "icds/";
     private static final String TIMEFIX = "timefix/";
+    private static final String TAGRULES = "tagrules/";
     private static final int LOAD_THREADS = 16;
 
     private final BlobStore store;
@@ -64,6 +67,7 @@ public class CatalogRepository {
     private final Map<String, SavedPlaylist> playlists = new LinkedHashMap<>();
     private final Map<String, byte[]> icdJson = new LinkedHashMap<>();
     private final Map<String, TimeFixProfile> profiles = new LinkedHashMap<>();
+    private final Map<String, CategoryTagRules> tagRules = new LinkedHashMap<>();
     private final List<HistoryEntry> history = new ArrayList<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -123,11 +127,13 @@ public class CatalogRepository {
             playlists.clear();
             icdJson.clear();
             profiles.clear();
+            tagRules.clear();
             loadAll(CATEGORIES, Category.class, Category::id, categories);
             loadAll(PCAPS, PcapFile.class, PcapFile::id, files);
             loadAll(RECORDS, Record.class, Record::id, records);
             loadAll(PLAYLISTS, SavedPlaylist.class, SavedPlaylist::id, playlists);
             loadAll(TIMEFIX, TimeFixProfile.class, TimeFixProfile::categoryId, profiles);
+            loadAll(TAGRULES, CategoryTagRules.class, CategoryTagRules::categoryId, tagRules);
             loadRaw(ICDS, icdJson);
             byte[] tagsJson = store.get("tags.json");
 
@@ -250,6 +256,11 @@ public class CatalogRepository {
         return read(() -> profiles.get(categoryId));
     }
 
+    /** The category's auto-tagging rules, or null if it has none saved. */
+    public CategoryTagRules tagRules(String categoryId) {
+        return read(() -> tagRules.get(categoryId));
+    }
+
     // ---------------------------------------------------------------- writes
 
     public void putCategory(Category category) throws IOException {
@@ -338,6 +349,20 @@ public class CatalogRepository {
     public void deleteProfile(String categoryId) throws IOException {
         write(() -> {
             if (profiles.remove(categoryId) != null) store.delete(key(TIMEFIX, categoryId));
+        });
+    }
+
+    public void putTagRules(CategoryTagRules rules) throws IOException {
+        write(() -> {
+            store.put(key(TAGRULES, rules.categoryId()), Json.bytes(rules), JSON);
+            tagRules.put(rules.categoryId(), rules);
+        });
+    }
+
+    /** Deletes a category's auto-tagging rules, if it has any. */
+    public void deleteTagRules(String categoryId) throws IOException {
+        write(() -> {
+            if (tagRules.remove(categoryId) != null) store.delete(key(TAGRULES, categoryId));
         });
     }
 

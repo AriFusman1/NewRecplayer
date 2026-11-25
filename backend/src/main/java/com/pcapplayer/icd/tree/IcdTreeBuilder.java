@@ -22,7 +22,7 @@ public final class IcdTreeBuilder {
         for (MessageDef message : icd.messages()) {
             List<IcdTreeNode> fields = new ArrayList<>();
             fields.add(new IcdTreeNode("header", "header", ETreeNodeKind.HEADER, "header", null, 0, headerSize, null,
-                    false, false, nodes(icd.header().fields(), "header.", false)));
+                    false, false, nodes(icd.header().fields(), "header.", false), List.of()));
             fields.addAll(nodes(message.fields(), "", false));
             int bodySize = FieldDef.fixedSize(message.fields());
             Integer size = bodySize == FieldDef.VARIABLE ? null : headerSize + bodySize;
@@ -47,20 +47,26 @@ public final class IcdTreeBuilder {
 
         return switch (field.kind()) {
             case PRIMITIVE -> new IcdTreeNode(field.name(), path, ETreeNodeKind.PRIMITIVE, field.type().name(), field.type(), 0,
-                    size, array, field.type().numeric(), inArray, List.of());
+                    size, array, field.type().numeric(), inArray, List.of(), List.of());
             case ENUM -> new IcdTreeNode(field.name(), path, ETreeNodeKind.ENUM,
                     "enum " + field.enumDef().name() + " (" + field.enumDef().type() + ")", field.enumDef().type(), 0,
-                    size, array, false, inArray, List.of());
+                    size, array, false, inArray, List.of(), enumValues(field));
             case STRING -> new IcdTreeNode(field.name(), path, ETreeNodeKind.STRING, "string " + field.string().encoding(), null, 0,
-                    size, array, false, inArray, List.of());
+                    size, array, false, inArray, List.of(), List.of());
             case PADDING -> new IcdTreeNode(field.name(), path, ETreeNodeKind.PADDING, "padding", null, 0, size, null, false,
-                    inArray, List.of());
+                    inArray, List.of(), List.of());
             case STRUCT -> new IcdTreeNode(field.name(), path, ETreeNodeKind.STRUCT, "struct " + field.struct().name(), null, 0,
-                    size, array, false, inArray, nodes(field.struct().fields(), path + ".", inArray));
+                    size, array, false, inArray, nodes(field.struct().fields(), path + ".", inArray), List.of());
             case BITFIELD -> new IcdTreeNode(field.name(), path, ETreeNodeKind.BITFIELD,
                     "bitfield " + field.bitfield().type() + " " + field.bitfield().bitOrder(), null, 0, size, array, false,
-                    inArray, bits(field, path, inArray));
+                    inArray, bits(field, path, inArray), List.of());
         };
+    }
+
+    private static List<IcdTreeEnumValue> enumValues(FieldDef field) {
+        List<IcdTreeEnumValue> values = new ArrayList<>();
+        field.enumDef().values().forEach((value, name) -> values.add(new IcdTreeEnumValue(value, name)));
+        return values;
     }
 
     private static List<IcdTreeNode> bits(FieldDef field, String path, boolean inArray) {
@@ -69,7 +75,7 @@ public final class IcdTreeBuilder {
 
         for (BitDef bit : field.bitfield().bits()) {
             bits.add(new IcdTreeNode(bit.name(), path + "." + bit.name(), ETreeNodeKind.BIT, bit.bits() + " bits", container,
-                    bit.bits(), null, null, true, inArray, List.of()));
+                    bit.bits(), null, null, true, inArray, List.of(), List.of()));
         }
         return bits;
     }

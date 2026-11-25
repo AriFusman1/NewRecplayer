@@ -7,6 +7,7 @@ import com.pcapplayer.playback.ReplayEngine;
 import com.pcapplayer.recordManagement.service.CatalogService;
 import com.pcapplayer.uploadHandling.UploadService;
 import com.pcapplayer.web.live.LiveHub;
+import com.pcapplayer.web.routes.AutoTagRoutes;
 import com.pcapplayer.web.routes.CatalogRoutes;
 import com.pcapplayer.web.routes.HealthRoutes;
 import com.pcapplayer.web.routes.IcdRoutes;
@@ -52,6 +53,7 @@ public class ApiServer {
         });
         CatalogRoutes.mount(router, http, services.catalog(), services.cache());
         IcdRoutes.mount(router, http, services.catalog().icds(), services.catalog().timeFix());
+        AutoTagRoutes.mountRules(router, http, services.catalog().tagRules());
         ReplayRoutes.mount(router, http, services.engine());
         router.route("/api/*").handler(context -> Http.json(context, Http.NOT_FOUND, Map.of("code", "NOT_FOUND", "message", "No such endpoint")));
 

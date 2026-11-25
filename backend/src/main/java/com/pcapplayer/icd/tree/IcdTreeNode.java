@@ -15,7 +15,9 @@ import java.util.List;
  * @param array       null, or the array length: a number, or the field holding the count
  * @param numeric     true if the field can hold a time: a number (not BOOL, not an enum) or a bit
  * @param inArray     true if the field is an array element or inside one
+ * @param enumValues  for an enum: its values and names, sorted by value; else empty
  */
 public record IcdTreeNode(String name, String path, ETreeNodeKind kind, String type, EFieldType storageType, int bitWidth,
-                          Integer size, String array, boolean numeric, boolean inArray, List<IcdTreeNode> children) {
+                          Integer size, String array, boolean numeric, boolean inArray, List<IcdTreeNode> children,
+                          List<IcdTreeEnumValue> enumValues) {
 }

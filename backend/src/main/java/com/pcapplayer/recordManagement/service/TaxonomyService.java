@@ -58,7 +58,7 @@ public class TaxonomyService {
     }
 
     /**
-     * Deletes the category and its time-fix profile. Its records move to {@code moveToId} (a category
+     * Deletes the category, its time-fix profile and its auto-tagging rules. Its records move to {@code moveToId} (a category
      * with the same mode, whose own profile then applies to them), or, when that is null, are deleted
      * together with any pcap files no longer used. Tags are global and stay.
      */
@@ -76,6 +76,7 @@ public class TaxonomyService {
 
             writeToStorage(() -> {
                 catalog.repo.deleteProfile(id);
+                catalog.repo.deleteTagRules(id);
                 catalog.repo.deleteCategory(id);
             });
         });
