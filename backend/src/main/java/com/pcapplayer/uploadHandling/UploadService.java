@@ -2,6 +2,8 @@ package com.pcapplayer.uploadHandling;
 
 import com.pcapplayer.errorHandling.ApiException;
 import com.pcapplayer.pcapProcessing.capture.InvalidCaptureException;
+import com.pcapplayer.pcapProcessing.capture.OpenedPcap;
+import com.pcapplayer.pcapProcessing.capture.PcapInputOpener;
 import com.pcapplayer.pcapProcessing.summary.CaptureScanner;
 import com.pcapplayer.pcapProcessing.summary.CaptureSummary;
 
@@ -68,9 +70,48 @@ public class UploadService {
 
     /**
      * Hashes and scans a fully received temp file; both read the whole file, so they run at the same
-     * time. Deletes the file if it is not a valid capture.
+     * time. Deletes the file if it is not a valid capture. A gzipped file (detected by its bytes) is
+     * decompressed first and its name loses the ".gz", so "a.pcap.gz" is stored as the capture "a.pcap".
      */
-    public Upload register(Path temp, String originalName, String uploadedBy) {
+    public Upload register(Path received, String originalName, String uploadedBy) {
+        boolean gzipped;
+        Path temp;
+
+        try {
+            gzipped = PcapInputOpener.isGzipped(received);
+            temp = gzipped ? ungzip(received) : received;
+        } catch (IOException e) {
+            discardQuietly(received);
+            throw ApiException.unprocessable("INVALID_FILE", ApiException.reason(e), "Invalid pcap file: " + e.getMessage());
+        }
+        return registerPlain(temp, PcapInputOpener.cleanName(originalName, gzipped), uploadedBy);
+    }
+
+    /**
+     * Registers a capture that was already decompressed, hashed and scanned (auto-tagging does that
+     * itself). The registry takes ownership of the file.
+     */
+    public Upload registerScanned(Path pcap, String name, long size, String sha256, CaptureSummary summary, String uploadedBy) {
+        Upload upload = new Upload(UUID.randomUUID().toString(), pcap, name, size, sha256, summary, uploadedBy,
+                System.currentTimeMillis());
+        uploads.put(upload.id(), upload);
+        return upload;
+    }
+
+    /** Decompresses a gzipped upload into a new temp file and deletes the compressed one. */
+    private Path ungzip(Path received) throws IOException {
+        Path plain = newTempPath();
+
+        try {
+            OpenedPcap opened = PcapInputOpener.open(received, null, plain);
+            if (!opened.isPcap()) throw new InvalidCaptureException("The gzipped file does not contain a pcap or pcapng capture");
+            return plain;
+        } finally {
+            discardQuietly(received);
+        }
+    }
+
+    private Upload registerPlain(Path temp, String originalName, String uploadedBy) {
         CompletableFuture<String> hashing = CompletableFuture.supplyAsync(() -> {
             try {
                 return sha256(temp);
