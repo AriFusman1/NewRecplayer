@@ -686,7 +686,33 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .rule-predicate { padding-inline-start: 8px; }
 .rule-row { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .rule-row:last-of-type { border-bottom: none; }
-.rule-summary { color: var(--text-2); overflow-wrap: anywhere; }
+.rule-row.ticked .strong { color: var(--accent); }
+.condition-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 4px; color: var(--text-2); }
+.condition-part { display: inline-flex; align-items: center; gap: 6px; }
+.condition-word { font-weight: 700; color: var(--muted); }
+.condition-code { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; padding: 1px 6px; border-radius: 5px;
+  background: var(--surface-3); color: var(--text); unicode-bidi: isolate; overflow-wrap: anywhere; }
+
+/* auto tagging page: how it works, numbered steps, run modes */
+.how-it-works { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;
+  margin: 0 0 16px; padding: 0; counter-reset: how; }
+.how-it-works li { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px dashed var(--border);
+  border-radius: var(--radius-lg); font-size: 13px; color: var(--text-2); }
+.how-it-works li svg { flex: none; margin-top: 2px; color: var(--accent); }
+.step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.step-title { font-size: 15px; margin: 0; flex: 1; }
+.step-number { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: none;
+  border-radius: 50%; background: var(--surface-3); color: var(--text-2); font-size: 12px; font-weight: 700; }
+.step.done .step-number { background: var(--success-soft); color: var(--success); }
+.step-help { margin: 0 0 10px; }
+.run-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 6px 0 12px; }
+.run-mode { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-lg); cursor: pointer; }
+.run-mode > span { display: flex; flex-direction: column; gap: 2px; }
+.run-mode input { margin-top: 3px; }
+.run-mode.active { border-color: var(--accent); background: var(--surface-2, var(--surface)); }
+.run-plan { margin: 0 0 10px; }
+.run-plan.missing { color: var(--warning); }
 .archive-browser { display: flex; flex-direction: column; gap: 6px; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--surface-3); }

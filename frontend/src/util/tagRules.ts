@@ -1,5 +1,4 @@
 import type { FieldPredicate, IcdTree, IcdTreeMessage, IcdTreeNode, Operator, RuleCondition, RuleValue, TagRule, ValueType } from '../api/types';
-import { opcodeLabel } from './timefix.js'; // .js: the unit tests run this file in Node
 
 // Pure helpers for the rule editor. The server checks every rule again when it is saved.
 
@@ -175,14 +174,4 @@ export function predicateText(predicate: FieldPredicate, words: { contains: stri
     case 'STARTS_WITH': return `${predicate.path} ${words.startsWith} ${values[0]}`;
     default: return `${predicate.path} ${SYMBOLS[predicate.op]} ${values[0]}`;
   }
-}
-
-/** "≥10 × Track where targets[*].kind = AIR AND count > 5". */
-export function conditionText(condition: RuleCondition, tree: IcdTree | null,
-  words: { where: string; and: string; contains: string; startsWith: string }): string {
-  const message = tree?.messages.find((candidate) => candidate.opcode === condition.opcode);
-  const name = message?.name ?? opcodeLabel(condition.opcode);
-  const head = `≥${condition.minCount} × ${name}`;
-  if (condition.kind === 'COUNT' || condition.predicates.length === 0) return head;
-  return `${head} ${words.where} ${condition.predicates.map((predicate) => predicateText(predicate, words)).join(` ${words.and} `)}`;
 }

@@ -1,8 +1,8 @@
 // Run with `npm test`.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { IcdTree, IcdTreeNode, TagRule } from '../api/types';
-import { conditionText, draftOf, newCondition, operatorsFor, ruleOf, valueTypeOf } from './tagRules.js';
+import type { FieldPredicate, IcdTree, IcdTreeNode, TagRule } from '../api/types';
+import { draftOf, newCondition, operatorsFor, predicateText, ruleOf, valueTypeOf } from './tagRules.js';
 
 function node(path: string, kind: IcdTreeNode['kind'], storageType: string | null, extra: Partial<IcdTreeNode> = {}): IcdTreeNode {
   return { name: path, path, kind, type: '', storageType, bitWidth: 0, size: 1, array: null, numeric: false, inArray: false,
@@ -15,7 +15,7 @@ const TREE: IcdTree = {
   id: 'sample-v1', name: 'Sample', byteOrder: 'BIG_ENDIAN',
   messages: [{ opcode: 2, name: 'Track', size: null, fields: [COUNT, node('targets', 'STRUCT', null, { children: [KIND] })] }],
 };
-const WORDS = { where: 'where', and: 'AND', contains: 'contains', startsWith: 'starts with' };
+const WORDS = { contains: 'contains', startsWith: 'starts with' };
 
 test('value types and their operators', () => {
   assert.equal(valueTypeOf(KIND), 'ENUM');
@@ -59,15 +59,12 @@ test('a saved rule round-trips through the editor', () => {
   assert.deepEqual(again.conditions[0].predicates[1].values, [{ name: 'AIR' }]);
 });
 
-test('readable summary', () => {
-  const rule: TagRule = { id: 'r', name: 'x', conditions: [
-    { kind: 'FIELDS', opcode: 2, minCount: 10, predicates: [
-      { path: 'targets[*].kind', op: 'EQ', values: [{ name: 'AIR' }] },
-      { path: 'targetCount', op: 'GT', values: [{ number: 5 }] },
-    ] },
-    { kind: 'COUNT', opcode: 9, minCount: 1, predicates: [] },
-  ] };
+test('readable predicates', () => {
+  const predicate = (path: string, op: FieldPredicate['op'], values: FieldPredicate['values']) => predicateText({ path, op, values }, WORDS);
 
-  assert.equal(conditionText(rule.conditions[0], TREE, WORDS), '≥10 × Track where targets[*].kind = AIR AND targetCount > 5');
-  assert.equal(conditionText(rule.conditions[1], TREE, WORDS), '≥1 × 9 (0x9)', 'an opcode not in the ICD shows its number');
+  assert.equal(predicate('targets[*].kind', 'EQ', [{ name: 'AIR' }]), 'targets[*].kind = AIR');
+  assert.equal(predicate('targetCount', 'GT', [{ number: 5 }]), 'targetCount > 5');
+  assert.equal(predicate('count', 'BETWEEN', [{ number: 1 }, { number: 5 }]), 'count ∈ [1 … 5]');
+  assert.equal(predicate('unit', 'STARTS_WITH', [{ text: 'HAWK' }]), 'unit starts with "HAWK"');
+  assert.equal(predicate('hot', 'EQ', [{ bool: true }]), 'hot = true');
 });

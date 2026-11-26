@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { AutoTagCapabilities, TagJobSummary, TagRulesView } from '../../api/types';
@@ -56,9 +56,16 @@ export function AutoTagPage() {
   }, [categoryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const max = capabilities?.maxFilesPerRun ?? 0;
-  const overLimit = selection?.count !== null && selection !== null && max > 0 && selection.count! > max;
-  const canStart = !busy && !upload && categoryId && ruleIds.length > 0 && selection !== null && selection.count !== null
-    && selection.count > 0 && !overLimit;
+  const fileCount = selection?.count ?? 0;
+  const overLimit = max > 0 && fileCount > max;
+  const category = categories.find((candidate) => candidate.id === categoryId);
+  const missing = [
+    !categoryId && t('at.missingCategory'),
+    fileCount === 0 && t('at.missingFiles'),
+    overLimit && t('at.missingFewerFiles', { max: formatNumber(max) }),
+    ruleIds.length === 0 && t('at.missingRules'),
+  ].filter(Boolean) as string[];
+  const canStart = !busy && !upload && missing.length === 0;
 
   const start = () => run(async () => {
     if (!selection) return;
@@ -98,11 +105,15 @@ export function AutoTagPage() {
           <p className="muted">{t('at.subtitle')}</p>
         </div>
       </div>
+      <ol className="how-it-works">
+        <li><Icon name="layers" size={16} /><span>{t('at.how1')}</span></li>
+        <li><Icon name="filter" size={16} /><span>{t('at.how2')}</span></li>
+        <li><Icon name="tag" size={16} /><span>{t('at.how3')}</span></li>
+      </ol>
 
       <div className="stack-lg">
-        <section className="card">
-          <span className="section-title">1 · {t('at.category')}</span>
-          <div className="row" style={{ gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+        <Step n={1} title={t('at.category')} done={!!categoryId} help={t('at.categoryHelp')}>
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
             <select className="select" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
               <option value="">{t('at.chooseCategory')}</option>
               {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
@@ -110,11 +121,10 @@ export function AutoTagPage() {
             {rules?.icdId && <span className="small muted">{t('tf.icd')}: <span className="mono ltr">{rules.tree?.name ?? rules.icdId} ({rules.icdId})</span></span>}
           </div>
           {categories.length === 0 && <p className="small muted">{t('at.noIcdCategories')}</p>}
-        </section>
+        </Step>
 
-        <section className="card">
-          <span className="section-title">2 · {t('at.source')}</span>
-          <div style={{ marginTop: 8 }}>
+        <Step n={2} title={t('at.source')} done={fileCount > 0 && !overLimit} help={t('at.sourceHelp')}>
+          <div>
             <SourcePicker archiveConfigured={capabilities?.archiveConfigured ?? false} onChange={setSelection} />
           </div>
           <div className="row" style={{ gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
@@ -126,30 +136,38 @@ export function AutoTagPage() {
             {max > 0 && <span className="small muted">{t('at.limit', { max: formatNumber(max) })}</span>}
           </div>
           {overLimit && <p className="filter-error">{t('at.overLimit', { max: formatNumber(max) })}</p>}
-        </section>
+        </Step>
 
-        <section className="card">
-          <span className="section-title">3 · {t('at.rules')}</span>
-          <p className="small muted" style={{ margin: '4px 0 8px' }}>{t('at.rulesHelp')}</p>
+        <Step n={3} title={t('at.rules')} done={ruleIds.length > 0} help={t('at.rulesHelp')}
+          summary={rules && rules.rules.length > 0 ? t('at.rulesTicked', { n: ruleIds.length, total: rules.rules.length }) : undefined}>
           {rules ? <RulesPicker view={rules} selectedIds={ruleIds} onSelected={setRuleIds} onChanged={() => void loadRules(categoryId)} />
             : <p className="small muted">{t('at.chooseCategoryFirst')}</p>}
-        </section>
+        </Step>
 
-        <section className="card">
-          <span className="section-title">4 · {t('at.run')}</span>
-          <label className="row" style={{ gap: 8, marginTop: 8 }}>
-            <input type="checkbox" checked={evaluateOnly} onChange={(e) => setEvaluateOnly(e.target.checked)} />
-            <span>{t('at.evaluateOnly')}</span>
-          </label>
-          <p className="small muted" style={{ margin: '4px 0 10px' }}>{t('at.evaluateOnlyHelp')}</p>
+        <Step n={4} title={t('at.run')} done={false}>
+          <div className="run-modes">
+            <label className={`run-mode${evaluateOnly ? '' : ' active'}`}>
+              <input type="radio" name="runMode" checked={!evaluateOnly} onChange={() => setEvaluateOnly(false)} />
+              <span><span className="strong">{t('at.modeSave')}</span><span className="small muted">{t('at.modeSaveHelp')}</span></span>
+            </label>
+            <label className={`run-mode${evaluateOnly ? ' active' : ''}`}>
+              <input type="radio" name="runMode" checked={evaluateOnly} onChange={() => setEvaluateOnly(true)} />
+              <span><span className="strong">{t('at.evaluateOnly')}</span><span className="small muted">{t('at.evaluateOnlyHelp')}</span></span>
+            </label>
+          </div>
+          {missing.length > 0
+            ? <p className="small run-plan missing">{t('at.missingIntro')} {missing.join(' · ')}</p>
+            : <p className="small run-plan">{t(evaluateOnly ? 'at.planEvaluate' : 'at.planSave',
+              { files: formatNumber(fileCount), rules: ruleIds.length, category: category?.name ?? '' })}</p>}
           {upload && (
             <div className="stack" style={{ marginBottom: 10 }}>
               <span className="small">{t('at.uploading', { done: upload.done, total: upload.total })}</span>
               <div className="progress"><div style={{ width: `${(100 * upload.done) / Math.max(1, upload.total)}%` }} /></div>
             </div>
           )}
-          <button className="btn primary" disabled={!canStart} onClick={() => void start()}><Icon name="play" size={12} />{t('at.start')}</button>
-        </section>
+          <button className="btn primary" disabled={!canStart} onClick={() => void start()}>
+            <Icon name="play" size={12} />{t(evaluateOnly ? 'at.startEvaluate' : 'at.start')}</button>
+        </Step>
 
         <section className="card">
           <span className="section-title">{t('at.pastJobs')}</span>
@@ -178,5 +196,22 @@ export function AutoTagPage() {
         </section>
       </div>
     </div>
+  );
+}
+
+/** A numbered step: a check mark once it is done, an optional summary on the end side, and help under the title. */
+function Step({ n, title, done, help, summary, children }: {
+  n: number; title: string; done: boolean; help?: string; summary?: string; children: ReactNode;
+}) {
+  return (
+    <section className={`card step${done ? ' done' : ''}`}>
+      <div className="step-head">
+        <span className="step-number">{done ? <Icon name="check" size={14} /> : n}</span>
+        <h2 className="step-title">{title}</h2>
+        {summary && <span className="badge neutral">{summary}</span>}
+      </div>
+      {help && <p className="small muted step-help">{help}</p>}
+      {children}
+    </section>
   );
 }

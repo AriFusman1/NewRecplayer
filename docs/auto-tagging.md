@@ -11,6 +11,14 @@ match. Those 5 become records, each with the count of every message type in it.
 
 The design is in [auto-tagging-plan.md](auto-tagging-plan.md).
 
+## Trying it with the demo
+
+The `dummy/` folder has a demo ICD (`demo-sensor.icd.json`: Heartbeat, TargetReport, SystemStatus) and, in
+`dummy/pcaps`, 11 small captures shaped so that each matches a different rule (one gzipped, one that is not
+a pcap). `dummy/setup_and_try.py` uploads the ICD, creates the *Demo sensor* category with example rules and
+runs a job on `dummy/pcaps`: evaluate only, or with `--save` the matching files become records tagged with
+their rules. `dummy/README.md` lists every file with the rules it should match.
+
 ## Running it
 
 Open **Auto tagging** in the bottom bar.
@@ -23,8 +31,8 @@ Open **Auto tagging** in the bottom bar.
    |---|---|
    | Local files | Choose several files on your computer. |
    | Local folder | Choose a folder, tick *Include subfolders* if needed, and give an optional *Last modified* span. The browser filters by each file's last-modified time and uploads **only** the files inside the span. |
-   | Archive files | Browse the archive S3 and tick files. |
-   | Archive folder | Open a folder in the archive browser, tick *Include subfolders* if needed, and give an optional span. The server lists the folder and keeps the objects whose S3 **LastModified** is inside the span. |
+   | S3 files | Browse the archive S3 and tick files. |
+   | S3 folder | Open a folder in the archive browser, tick *Include subfolders* if needed, and give an optional span. The server lists the folder and keeps the objects whose S3 **LastModified** is inside the span. |
 
    - The span is typed in Israel time and converted to UTC before comparing. Both ends are included.
      A start date alone means 00:00:00 and an end date alone means 23:59:59.
