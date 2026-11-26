@@ -803,8 +803,9 @@ There are two ways to write that JSON from the classes:
 
 The examples under `skills/icd-from-annotations/examples/` are shared: the converter's tests convert
 each one and compare with its `expected.icd.json`, the skill's tests check those files, and the backend
-tests load them and decode real bytes with them. The open assumptions (bit order inside a chunk, and how
-`@Unsigned` sizes a field) are listed at the end of the reference.
+tests load them and decode real bytes with them. The open assumptions (bit order inside a chunk, `@LengthEncoded`
+without a field, unsigned bits) are listed at the end of the reference; `@Unsigned` halving the Java
+type (`@Unsigned int` = 2 bytes) is confirmed.
 
 ### Auto tagging
 

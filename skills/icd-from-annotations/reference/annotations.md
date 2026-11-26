@@ -80,6 +80,12 @@ An annotation-style ICD works with time fixing like any other ICD (`docs/time-fi
 integer**: a `fixedPoint` time field works when its stored unit is the kind's unit (for example
 `lsb = 0.001` seconds is `REGULAR_MILLIS`); its `lsb` is not used for the time.
 
+## Confirmed
+
+- **`@Unsigned` alone halves the Java type**: `@Unsigned long` is 4 bytes, `@Unsigned int` 2 bytes,
+  `@Unsigned short` 1 byte (confirmed by the team, 26/11/2026). `@Unsigned byte` cannot be halved and
+  stays 1 byte.
+
 ## Assumptions to confirm
 
 These points are not stated in the annotation document. Each is one setting or one rule in the code,
@@ -87,8 +93,6 @@ so it is easy to change once confirmed with a real message:
 
 1. **Bit order**: the first `bits` field of a chunk takes its most significant bits (`MSB_FIRST`).
    If the legacy code fills from bit 0 instead, set `"bitOrder": "LSB_FIRST"`.
-2. **`@Unsigned` alone halves the Java type** (`@Unsigned int` = 2 bytes), as the document describes
-   for `long` ("reads only half").
-3. **`@LengthEncoded` without `encodingField`**: with `value`, an integer of `value` bits written right
+2. **`@LengthEncoded` without `encodingField`**: with `value`, an integer of `value` bits written right
    before the array; without `value`, the field just before the array.
-4. **A `bits` field is unsigned** even without `@Unsigned` (`int b:3` holding 5, not -3).
+3. **A `bits` field is unsigned** even without `@Unsigned` (`int b:3` holding 5, not -3).
