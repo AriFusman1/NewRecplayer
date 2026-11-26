@@ -1,0 +1,61 @@
+# A local MinIO for testing S3 storage and the read-only archive (auto-tagging's S3 sources).
+#
+#   docker compose -f docker-compose.minio.yml up -d
+#   then run the app with   CONFIG_FILE=config/application.minio.yml   (see that file)
+#
+# - S3 API on http://localhost:9000, web console on http://localhost:9001 (minioadmin / minioadmin).
+# - Buckets: "pcap-player" (the app's storage) and "recordings" (the archive). The init step copies
+#   dummy/pcaps into recordings/demo-sensor/ and creates the user archive-reader, which can only read.
+# - The data stays in the "minio-data" volume. Start over:  docker compose -f docker-compose.minio.yml down -v
+#
+# MinIO stopped publishing images in 2025 (Docker Hub and quay.io refuse them); Bitnami's archived copy
+# of the last release still downloads. In an isolated network use the image your registry mirrors.
+# These credentials are for local testing only.
+services:
+  minio:
+    image: bitnamilegacy/minio:2025.4.22
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_DEFAULT_BUCKETS: pcap-player,recordings
+    volumes:
+      - minio-data:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio-init:
+    image: bitnamilegacy/minio:2025.4.22
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./dummy/pcaps:/pcaps:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing local/pcap-player local/recordings
+        mc mirror --overwrite /pcaps local/recordings/demo-sensor/all
+        mc cp /pcaps/alarm_patrol.pcap /pcaps/alarm_fault_gz.pcap.gz local/recordings/demo-sensor/night-shift/2026-11-24/
+        # list and read "recordings", nothing else (the built-in "readonly" policy cannot list)
+        cat > /tmp/archive-read.json <<'EOF'
+        {"Version": "2012-10-17", "Statement": [
+          {"Effect": "Allow", "Action": ["s3:ListBucket", "s3:GetBucketLocation"], "Resource": ["arn:aws:s3:::recordings"]},
+          {"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": ["arn:aws:s3:::recordings/*"]}]}
+        EOF
+        mc admin policy create local archive-read /tmp/archive-read.json
+        mc admin user add local archive-reader archive-reader-secret
+        mc admin policy attach local archive-read --user archive-reader || true
+        mc ls --recursive local/recordings
+    restart: "no"
+
+volumes:
+  minio-data:

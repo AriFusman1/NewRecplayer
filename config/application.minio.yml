@@ -1,0 +1,29 @@
+# Configuration for the local MinIO from docker-compose.minio.yml. Local testing only.
+#
+#   docker compose -f docker-compose.minio.yml up -d
+#   CONFIG_FILE=config/application.minio.yml java -jar backend/target/pcap-player.jar
+#   (PowerShell: $env:CONFIG_FILE = "config\application.minio.yml"; java -jar backend\target\pcap-player.jar)
+#
+# Don't set STORAGE_TYPE in the shell: environment variables override this file.
+
+storage:
+  type: s3
+
+# The app's own storage: records, catalog, ICDs
+s3:
+  endpoint: "http://localhost:9000"
+  region: us-east-1
+  bucket: pcap-player
+  access-key: "minioadmin"
+  secret-key: "minioadmin"
+  path-style: true
+
+# The archive for auto-tagging (S3 files / S3 folder), read with a user that can only read
+archive-s3:
+  endpoint: "http://localhost:9000"
+  region: us-east-1
+  bucket: recordings
+  access-key: "archive-reader"
+  secret-key: "archive-reader-secret"
+  path-style: true
+  root-prefix: ""

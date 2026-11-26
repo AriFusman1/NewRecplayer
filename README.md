@@ -223,6 +223,21 @@ variables override the file. See [Configuration](#configuration). The bucket mus
 MinIO archived its open-source server in late 2025 and stopped publishing public images, so use
 the image your internal registry mirrors; any S3-compatible server works the same way.
 
+**Local MinIO for testing.** `docker-compose.minio.yml` starts MinIO (Bitnami's archived image) with
+two buckets: `pcap-player` for storage, and `recordings` as the read-only archive. The archive gets
+the `dummy/pcaps` captures under `demo-sensor/`, and a user `archive-reader` that can only list and
+read it. `config/application.minio.yml` points the app at both buckets:
+
+```bash
+docker compose -f docker-compose.minio.yml up -d
+CONFIG_FILE=config/application.minio.yml java -jar backend/target/pcap-player.jar
+```
+
+In PowerShell, set `$env:CONFIG_FILE = "config\application.minio.yml"` first. The console is at
+http://localhost:9001 (minioadmin / minioadmin, for local use only). The archive objects'
+*LastModified* is the time the init step uploaded them, not the pcaps' file dates. To start over, run
+`docker compose -f docker-compose.minio.yml down -v`.
+
 ### Option C: Frontend development (hot reload)
 
 Run the backend on port 8080 as in option B, then:

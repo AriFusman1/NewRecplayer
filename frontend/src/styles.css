@@ -64,6 +64,9 @@ h3 { font-size: 15px; }
 p { margin: 0; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; }
+/* A table cell stays a cell, so it fills the row's height and its border lines up with the others. */
+td.ltr, th.ltr { display: table-cell; }
+[dir="rtl"] td.ltr, [dir="rtl"] th.ltr { text-align: right; }
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
 .grow { flex: 1; min-width: 0; }
