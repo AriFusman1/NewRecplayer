@@ -1,0 +1,156 @@
+{
+  "id": "demo-sensor-v1",
+  "name": "Demo sensor",
+  "description": "Demo ICD for trying auto tagging and time fixing with the pcaps in this folder. One message per UDP datagram to port 5100. azimuth is in 0.01 degrees and range in 0.1 m (raw integers).",
+  "byteOrder": "BIG_ENDIAN",
+  "header": {
+    "lengthIncludesHeader": true,
+    "fields": [
+      {
+        "name": "msgType",
+        "type": "UINT16",
+        "role": "opcode"
+      },
+      {
+        "name": "msgLength",
+        "type": "UINT16",
+        "role": "length"
+      },
+      {
+        "name": "sendTime",
+        "type": "UINT32",
+        "description": "LTime: seconds since midnight UTC"
+      }
+    ]
+  },
+  "enums": {
+    "EStatus": {
+      "type": "UINT8",
+      "values": {
+        "0": "OFF",
+        "1": "STANDBY",
+        "2": "TRACKING",
+        "3": "FAULT"
+      }
+    }
+  },
+  "structs": {
+    "Target": {
+      "fields": [
+        {
+          "name": "targetId",
+          "type": "UINT16"
+        },
+        {
+          "name": "range",
+          "type": "INT32",
+          "description": "0.1 m"
+        },
+        {
+          "name": "seenTime",
+          "type": "UINT32",
+          "description": "seconds since 1970 UTC"
+        },
+        {
+          "name": "name",
+          "string": {
+            "length": 8
+          }
+        }
+      ]
+    }
+  },
+  "messages": [
+    {
+      "opcode": "0x01",
+      "name": "Heartbeat",
+      "fields": [
+        {
+          "name": "sequence",
+          "type": "UINT16"
+        },
+        {
+          "name": "uptimeCheckTime",
+          "type": "UINT32",
+          "description": "LTime"
+        }
+      ]
+    },
+    {
+      "opcode": "0x10",
+      "name": "TargetReport",
+      "fields": [
+        {
+          "name": "reportId",
+          "type": "INT32"
+        },
+        {
+          "name": "flags",
+          "bitfield": {
+            "type": "UINT8",
+            "bitOrder": "MSB_FIRST",
+            "bits": [
+              {
+                "name": "sensorId",
+                "bits": 4
+              },
+              {
+                "name": "mode",
+                "bits": 3
+              },
+              {
+                "name": "alarm",
+                "bits": 1
+              }
+            ]
+          }
+        },
+        {
+          "name": "status",
+          "enum": "EStatus"
+        },
+        {
+          "name": "azimuth",
+          "type": "INT32",
+          "description": "0.01 degrees"
+        },
+        {
+          "name": "reportTimeMs",
+          "type": "INT64"
+        },
+        {
+          "name": "targetCount",
+          "type": "UINT8"
+        },
+        {
+          "name": "targets",
+          "struct": "Target",
+          "array": {
+            "lengthField": "targetCount"
+          }
+        }
+      ]
+    },
+    {
+      "opcode": "0x20",
+      "name": "SystemStatus",
+      "fields": [
+        {
+          "name": "temperature",
+          "type": "FLOAT32",
+          "description": "degrees Celsius"
+        },
+        {
+          "name": "overheated",
+          "type": "BOOL"
+        },
+        {
+          "name": "firmware",
+          "string": {
+            "length": 8
+          }
+        }
+      ]
+    }
+  ]
+}
