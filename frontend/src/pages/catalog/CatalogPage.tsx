@@ -174,16 +174,18 @@ function EditableRow({ name, prefix = '', extra, onRename, onDelete }: {
     if (await run(() => onRename(value.trim()))) setEditing(false);
   };
   return (
-    <div className="list-row">
+    <div className="list-row editable-row">
       {editing ? (
-        <input className="input grow" autoFocus value={value} onChange={(e) => setValue(e.target.value)}
+        <input className="input list-row-name" autoFocus value={value} onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') setEditing(false); }} onBlur={() => void save()} />
       ) : (
-        <span className="grow ellipsis strong"><bdi>{prefix}{name}</bdi></span>
+        <span className="list-row-name ellipsis strong" title={prefix + name}><bdi>{prefix}{name}</bdi></span>
       )}
-      {extra}
-      <button className="btn ghost icon sm" title={t('common.rename')} onClick={() => { setValue(name); setEditing(true); }}><Icon name="edit" /></button>
-      <button className="btn ghost icon sm" title={t('common.delete')} onClick={onDelete}><Icon name="trash" /></button>
+      <div className="list-row-actions">
+        {extra}
+        <button className="btn ghost icon sm" title={t('common.rename')} onClick={() => { setValue(name); setEditing(true); }}><Icon name="edit" /></button>
+        <button className="btn ghost icon sm" title={t('common.delete')} onClick={onDelete}><Icon name="trash" /></button>
+      </div>
     </div>
   );
 }

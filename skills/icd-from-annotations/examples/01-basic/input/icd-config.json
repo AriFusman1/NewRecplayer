@@ -1,0 +1,16 @@
+{
+  "id": "example-basic",
+  "name": "Example 1: bits and a fixed string",
+  "header": {
+    "class": "Header",
+    "opcodeField": "msgType",
+    "lengthField": "msgLength",
+    "lengthIncludesHeader": true
+  },
+  "messages": [
+    {
+      "opcode": "0x01",
+      "class": "Msg"
+    }
+  ]
+}

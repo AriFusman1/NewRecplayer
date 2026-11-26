@@ -10,6 +10,12 @@ An ICD can be written in two equivalent ways:
 - **Annotated Java classes** in `backend/src/main/java/com/pcapplayer/icd/versions/<version>/`. See
   [Java annotations](#java-annotations) at the end.
 
+A third way, for message classes written with the legacy `iaf.ofek.oryekarot.general.io` annotations
+(`@Ordinal`, `@Bits`, `@Unsigned` ...), is JSON in the annotation style: `"format": "annotations"`, the
+classes and their fields with one property per annotation. It is described in
+[skills/icd-from-annotations/reference/annotations.md](../skills/icd-from-annotations/reference/annotations.md),
+and loads into the same model.
+
 Both are loaded into the same internal model and checked by the same rules. A test checks that the
 example at the end of this page loads to exactly the same model as the Java sample ICD.
 
@@ -118,6 +124,7 @@ Properties every field can have:
 |---|---|---|
 | `INT8` / `UINT8` | 1 | −128…127 / 0…255 |
 | `INT16` / `UINT16` | 2 | |
+| `UINT24` | 3 | 0…16 777 215 (mostly for 24-bit bitfield containers) |
 | `INT32` / `UINT32` | 4 | |
 | `INT64` / `UINT64` | 8 | |
 | `FLOAT32` / `FLOAT64` | 4 / 8 | IEEE 754 |

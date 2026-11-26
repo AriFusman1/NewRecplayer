@@ -1,0 +1,111 @@
+{
+  "format": "annotations",
+  "id": "example-arrays",
+  "name": "Example 2: nested classes and arrays",
+  "header": {
+    "class": "Header",
+    "opcodeField": "msgType",
+    "lengthField": "msgLength",
+    "lengthIncludesHeader": true
+  },
+  "messages": [
+    {
+      "opcode": "0x02",
+      "class": "TrackReport"
+    }
+  ],
+  "classes": {
+    "Header": {
+      "fields": [
+        {
+          "ordinal": 0,
+          "name": "msgType",
+          "type": "int",
+          "unsigned": true,
+          "description": "Which message follows."
+        },
+        {
+          "ordinal": 1,
+          "name": "msgLength",
+          "type": "int",
+          "unsigned": true,
+          "description": "The whole message length in bytes, header included."
+        }
+      ],
+      "binaryData": true,
+      "description": "The header every message starts with."
+    },
+    "TrackReport": {
+      "binaryData": true,
+      "description": "A report of several tracks.",
+      "fields": [
+        {
+          "ordinal": 0,
+          "name": "reportId",
+          "type": "int"
+        },
+        {
+          "ordinal": 4,
+          "name": "numOfReports",
+          "type": "int",
+          "lengthEncoder": {
+            "isLengthInBytes": true
+          },
+          "binaryInternal": true,
+          "description": "The size of tracks in bytes (not the number of tracks)."
+        },
+        {
+          "ordinal": 8,
+          "name": "tracks",
+          "type": "Track[]",
+          "lengthEncoded": {
+            "encodingField": "numOfReports"
+          }
+        },
+        {
+          "ordinal": 9,
+          "name": "spare",
+          "type": "short[]",
+          "size": 4
+        },
+        {
+          "ordinal": 10,
+          "name": "notes",
+          "type": "byte[]",
+          "lengthEncoded": {
+            "value": 8,
+            "unsigned": true
+          },
+          "description": "Its length is a byte written just before it."
+        }
+      ]
+    },
+    "Track": {
+      "binaryData": true,
+      "description": "One track. 10 bytes.",
+      "fields": [
+        {
+          "ordinal": 0,
+          "name": "trackId",
+          "type": "int",
+          "unsigned": true
+        },
+        {
+          "ordinal": 1,
+          "name": "range",
+          "type": "double",
+          "fixedPoint": {
+            "lsb": 0.01,
+            "type": "int"
+          },
+          "description": "Range in meters: the stored int times 0.01."
+        },
+        {
+          "ordinal": 2,
+          "name": "speed",
+          "type": "float"
+        }
+      ]
+    }
+  }
+}

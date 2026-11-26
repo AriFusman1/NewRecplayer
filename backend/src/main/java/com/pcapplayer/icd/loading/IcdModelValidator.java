@@ -138,6 +138,7 @@ public final class IcdModelValidator {
                 problem(field, "duplicate field name '" + field.name() + "'");
             }
             if (!orders.add(field.order())) problem(field, "duplicate order " + field.order());
+            if (field.kind() == EFieldKind.BITFIELD && field.bitfield().flat()) checkFlatBitNames(field, names);
 
             if (field.kind() == null) {
                 problem(field, "the field's type is missing");
@@ -209,6 +210,13 @@ public final class IcdModelValidator {
         }
     }
 
+    /** A flat bitfield's bits are named like fields of the struct, so they must not clash with them. */
+    private void checkFlatBitNames(FieldDef field, Set<String> structNames) {
+        for (BitDef bit : field.bitfield().bits()) {
+            if (bit.name() != null && !structNames.add(bit.name())) problem(field, "duplicate field name '" + bit.name() + "'");
+        }
+    }
+
     private void checkStruct(FieldDef field, Scope scope) {
         StructDef struct = field.struct();
 
@@ -250,6 +258,9 @@ public final class IcdModelValidator {
         if (count == null || count.kind() != EFieldKind.PRIMITIVE || !count.type().integer() || count.array() != null) {
             problem(field, "lengthField '" + path + "' must name an integer field before this one"
                     + " (a plain name in the same struct, 'header.x', or a dotted path from the message root)");
+        }
+        if (array.lengthInBytes() && field.elementSize() == FieldDef.VARIABLE) {
+            problem(field, "a length in bytes needs elements of a fixed size");
         }
     }
 

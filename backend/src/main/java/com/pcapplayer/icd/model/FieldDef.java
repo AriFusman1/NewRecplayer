@@ -9,10 +9,17 @@ package com.pcapplayer.icd.model;
  * @param byteOrder    override for this field, null to inherit from the enclosing message or ICD
  * @param array        set when the field repeats; each element is described by the other attributes
  * @param paddingBytes PADDING: number of reserved bytes
+ * @param rules        PRIMITIVE and ENUM: scaling and validity checks of the value; null for none
  */
 public record FieldDef(String name, int order, EFieldKind kind, EFieldType type, EByteOrder byteOrder,
                        StructDef struct, EnumDef enumDef, StringDef string, BitfieldDef bitfield,
-                       int paddingBytes, ArrayDef array) {
+                       int paddingBytes, ArrayDef array, ValueRules rules) {
+
+    public FieldDef(String name, int order, EFieldKind kind, EFieldType type, EByteOrder byteOrder,
+                    StructDef struct, EnumDef enumDef, StringDef string, BitfieldDef bitfield,
+                    int paddingBytes, ArrayDef array) {
+        this(name, order, kind, type, byteOrder, struct, enumDef, string, bitfield, paddingBytes, array, null);
+    }
 
     /** Value of {@link #fixedSize} when the size depends on another field's value. */
     public static final int VARIABLE = -1;
@@ -42,11 +49,15 @@ public record FieldDef(String name, int order, EFieldKind kind, EFieldType type,
     }
 
     public FieldDef withByteOrder(EByteOrder newByteOrder) {
-        return new FieldDef(name, order, kind, type, newByteOrder, struct, enumDef, string, bitfield, paddingBytes, array);
+        return new FieldDef(name, order, kind, type, newByteOrder, struct, enumDef, string, bitfield, paddingBytes, array, rules);
     }
 
     public FieldDef withArray(ArrayDef newArray) {
-        return new FieldDef(name, order, kind, type, byteOrder, struct, enumDef, string, bitfield, paddingBytes, newArray);
+        return new FieldDef(name, order, kind, type, byteOrder, struct, enumDef, string, bitfield, paddingBytes, newArray, rules);
+    }
+
+    public FieldDef withRules(ValueRules newRules) {
+        return new FieldDef(name, order, kind, type, byteOrder, struct, enumDef, string, bitfield, paddingBytes, array, newRules);
     }
 
     /** The integer type the bytes are read as: the primitive type, the enum's type or the bitfield container. */

@@ -1,0 +1,123 @@
+{
+  "format": "annotations",
+  "id": "example-enums",
+  "name": "Example 3: enums, fixed point, validity, Hebrew text",
+  "header": {
+    "class": "Header",
+    "opcodeField": "msgType",
+    "lengthField": "msgLength",
+    "lengthIncludesHeader": true
+  },
+  "messages": [
+    {
+      "opcode": "0x03",
+      "class": "Status"
+    }
+  ],
+  "classes": {
+    "Header": {
+      "fields": [
+        {
+          "ordinal": 0,
+          "name": "msgType",
+          "type": "int",
+          "unsigned": true,
+          "description": "Which message follows."
+        },
+        {
+          "ordinal": 1,
+          "name": "msgLength",
+          "type": "int",
+          "unsigned": true,
+          "description": "The whole message length in bytes, header included."
+        }
+      ],
+      "binaryData": true,
+      "description": "The header every message starts with."
+    },
+    "Status": {
+      "binaryData": true,
+      "validated": true,
+      "charset": {
+        "value": "ISO-8859-8",
+        "isReversed": true
+      },
+      "description": "The state of one sensor.",
+      "fields": [
+        {
+          "ordinal": 0,
+          "name": "mode",
+          "type": "EMode",
+          "unsigned": true,
+          "enumerable": "byte"
+        },
+        {
+          "ordinal": 1,
+          "name": "level",
+          "type": "ELevel",
+          "enumerable": "short"
+        },
+        {
+          "ordinal": 2,
+          "name": "azimuth",
+          "type": "double",
+          "fixedPoint": {
+            "lsb": 0.1,
+            "type": "int"
+          },
+          "validRange": {
+            "minValue": 0,
+            "maxValue": 360
+          },
+          "description": "Degrees: the stored int times 0.1."
+        },
+        {
+          "ordinal": 3,
+          "name": "head",
+          "type": "int",
+          "invalidityValue": 200
+        },
+        {
+          "ordinal": 4,
+          "name": "operator",
+          "type": "String",
+          "size": 8,
+          "description": "Hebrew, stored last letter first."
+        },
+        {
+          "ordinal": 5,
+          "name": "priority",
+          "type": "int",
+          "unsigned": true,
+          "bits": {
+            "value": 7,
+            "bitfield": "BITS8"
+          }
+        },
+        {
+          "ordinal": 6,
+          "name": "alarm",
+          "type": "boolean",
+          "bit": true
+        }
+      ]
+    }
+  },
+  "enums": {
+    "EMode": {
+      "constants": [
+        "OFF",
+        "STANDBY",
+        "ACTIVE"
+      ],
+      "description": "Values 0, 1, 2 (the enum's ordinals)."
+    },
+    "ELevel": {
+      "intValued": {
+        "LOW": 10,
+        "HIGH": 20
+      },
+      "description": "Values that do not start at 0: IntValued gives each one."
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "example-enums",
+  "name": "Example 3: enums, fixed point, validity, Hebrew text",
+  "header": {
+    "class": "Header",
+    "opcodeField": "msgType",
+    "lengthField": "msgLength",
+    "lengthIncludesHeader": true
+  },
+  "messages": [
+    {
+      "opcode": "0x03",
+      "class": "Status"
+    }
+  ]
+}

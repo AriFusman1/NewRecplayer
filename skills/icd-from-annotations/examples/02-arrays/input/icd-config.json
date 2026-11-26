@@ -1,0 +1,16 @@
+{
+  "id": "example-arrays",
+  "name": "Example 2: nested classes and arrays",
+  "header": {
+    "class": "Header",
+    "opcodeField": "msgType",
+    "lengthField": "msgLength",
+    "lengthIncludesHeader": true
+  },
+  "messages": [
+    {
+      "opcode": "0x02",
+      "class": "TrackReport"
+    }
+  ]
+}
